@@ -68,6 +68,7 @@ def run(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     print("[stage1] Поиск незакоммиченных изменений в пакетах...")
+    print(f"[stage1] Конфигурация: {cfg.get('_config_source', 'неизвестно')}")
     
     root = pathlib.Path.cwd()
     packages_dir = root / cfg["packages_dir"]
