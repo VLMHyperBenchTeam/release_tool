@@ -24,14 +24,69 @@ python -m release_tool.stage4 --bump patch --push   # 1.2.3 → 1.2.4 + тег
 `--dry-run` или `dry_run=true` в конфиге выводит шаги без изменения репозитория — удобно для проверки.
 
 ---
-## 2. Установка зависимостей
+## 2. Установка в проекты
+
+### Для новых проектов
+```bash
+# Добавляем release_tool как git submodule
+git submodule add https://github.com/VLMHyperBenchTeam/release_tool.git release_tool
+
+# Клонирование проектов с submodules
+git clone --recursive https://github.com/your-username/your-project.git
+
+# Или инициализация submodules в уже склонированном проекте
+git submodule update --init --recursive
+```
+
+### Структура проекта после установки
+```
+your-project/
+├── release_tool/           # ← Git submodule
+│   ├── stage1.py
+│   ├── stage2.py  
+│   ├── stage3.py
+│   ├── stage4.py
+│   ├── config.py
+│   ├── git_utils.py
+│   ├── release_tool.toml   # ← Конфигурация
+│   └── README.md
+├── packages/               # ← Ваши пакеты
+│   ├── package1/
+│   └── package2/
+└── .gitmodules            # ← Конфигурация submodules
+```
+
+### Обновление release_tool
+```bash
+# Переходим в папку submodule и обновляем
+cd release_tool
+git pull origin main
+
+# Возвращаемся в основной проект и фиксируем обновление
+cd ..
+git add release_tool
+git commit -m "update: обновить release_tool до последней версии"
+git push
+```
+
+### Использование (точно так же, как раньше)
+```bash
+# Все команды работают без изменений
+uv run python -m release_tool.stage1 --dry-run
+uv run python -m release_tool.stage2 --push
+uv run python -m release_tool.stage3
+uv run python -m release_tool.stage4 --bump patch --push
+```
+
+---
+## 3. Установка зависимостей
 ```
 pip install packaging
 ```
 *(используется только пакет `packaging`; остальные модули — стандартная библиотека)*
 
 ---
-## 3. Конфигурация `release_tool.toml`
+## 4. Конфигурация `release_tool.toml`
 ```toml
 [tool.release_tool]
 # Каталог, в котором лежат подпакеты (Git-репозитории)
@@ -57,8 +112,8 @@ dry_run = true
 ```
 
 ---
-## 4. Этапы работы
-### 4.1 Stage 1 — «Uncommitted»
+## 5. Этапы работы
+### 5.1 Stage 1 — «Uncommitted»
 `python -m release_tool.stage1 [--dry-run]`
 
 1. Проверяет `git status --porcelain`.
@@ -92,7 +147,7 @@ dry_run = true
 [stage1] ✅ Изменений не обнаружено — файлы изменений не созданы
 ```
 
-### 4.2 Stage 2 — «Commit»
+### 5.2 Stage 2 — «Commit»
 `python -m release_tool.stage2 [--dry-run] [--push]`
 
 Коммитит все изменения (`git add -A`) используя `<commit_message_filename>`.
@@ -116,7 +171,7 @@ dry_run = true
 [stage2] ✅ Нет пакетов с подготовленными commit-сообщениями
 ```
 
-### 4.3 Stage 3 — «Since Tag»
+### 5.3 Stage 3 — «Since Tag»
 `python -m release_tool.stage3 [--dry-run]`
 
 Собирает `git log <last_tag>..HEAD` → `<changes_output_dir>/<package>/<changes_since_tag_filename>`.
@@ -146,7 +201,7 @@ dry_run = true
 [stage3] ✅ Нет пакетов с новыми коммитами после последнего тега
 ```
 
-### 4.4 Stage 4 — «Release / Tag»
+### 5.4 Stage 4 — «Release / Tag»
 `python -m release_tool.stage4 [--dry-run] [--bump …] [--push]`
 
 1. Bump версии (`patch|minor|major|dev`).
@@ -185,14 +240,14 @@ python -m release_tool.stage4 --bump patch --push
 ```
 
 ---
-## 5. Алгоритмы и детали реализации
+## 6. Алгоритмы и детали реализации
 • Git-операции выполняются через `subprocess` (см. `release_tool/git_utils.py`).  
 • Проверка «есть ли изменения» — `git rev-list <last_tag>..HEAD --count` (>0 → есть).  
 • Инкремент версий — `packaging.version.Version` + RegExp; поддерживаются уровни `patch`/`minor`/`major` и `dev`.
 
 ---
 
-## 6. Типовые сценарии
+## 7. Типовые сценарии
 
 ### Проверка без изменений (dry-run)
 ```bash
