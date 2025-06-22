@@ -17,6 +17,7 @@ from .git_utils import (
     get_log_since_tag,
     has_changes_since_last_tag,
     get_diff_since_tag,
+    _run_git,
 )
 
 
@@ -40,14 +41,25 @@ def process_package(
     cfg: dict,
     dry_run: bool = False,
     include_diff: bool = False,
+    from_tag: str | None = None,
 ) -> None:
-    if not has_changes_since_last_tag(pkg_path):
-        print(f"[stage3]   {pkg_path.name}: нет новых коммитов после последнего тега")
-        return
+    # Определяем тег, от которого собираем изменения
+    if from_tag:
+        # Проверяем, что указанный тег существует
+        proc = _run_git(pkg_path, ["rev-parse", "--verify", from_tag], capture=True)
+        if proc.returncode != 0:
+            print(f"[stage3]   {pkg_path.name}: тег '{from_tag}' не найден")
+            return
+        tag_to_use = from_tag
+    else:
+        # Используем последний тег
+        tag_to_use = get_last_tag(pkg_path)
+        if not has_changes_since_last_tag(pkg_path):
+            print(f"[stage3]   {pkg_path.name}: нет новых коммитов после последнего тега")
+            return
 
-    last_tag = get_last_tag(pkg_path)
     # Игнорируем лог коммитов — сохраняем только diff
-    diff_txt = get_diff_since_tag(pkg_path, last_tag)
+    diff_txt = get_diff_since_tag(pkg_path, tag_to_use)
     log = ""
 
     if not log and not diff_txt:
@@ -78,6 +90,7 @@ def process_package(
 def run(argv: list[str] | None = None) -> None:
     cfg = load_config()
     parser = argparse.ArgumentParser(description="Stage 3: git log since last tag")
+    parser.add_argument("--tag", type=str, help="собрать изменения с указанного тега (по умолчанию — последний тег)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -101,6 +114,7 @@ def run(argv: list[str] | None = None) -> None:
             cfg,
             dry_run=args.dry_run or cfg.get("dry_run", False),
             include_diff=True,
+            from_tag=args.tag,
         )
         # Проверяем был ли создан файл
         changes_file = (pathlib.Path.cwd() / cfg.get("changes_output_dir", "release_tool/changes") / pkg.name / cfg["changes_since_tag_filename"])

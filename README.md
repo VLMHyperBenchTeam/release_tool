@@ -38,14 +38,19 @@
 python -m release_tool.stage1          # создаёт *changes_uncommitted.txt*
 
 # 2️⃣ Отдаём файлы LLM → заполняем *commit_message.txt*
-python -m release_tool.stage2 --push   # коммитим (и пушим) все изменения
+python -m release_tool.stage2 --commit --push   # коммитим (и пушим) все изменения
 
-# 3️⃣ Собираем коммиты после последнего тега
+# 3️⃣ Собираем diff после последнего тега
 python -m release_tool.stage3          # создаёт *changes_since_tag.txt*
 
 # 4️⃣ Отдаём в LLM → заполняем *tag_message.txt*, затем bump+tag
 python -m release_tool.stage4 --bump patch --push   # 1.2.3 → 1.2.4 + тег
 #   (bump: patch|minor|major|dev)
+```
+
+**Очистка файлов изменений:**
+```bash
+python -m release_tool.clear           # очищает release_tool/changes
 ```
 
 `--dry-run` или `dry_run=true` в конфиге выводит шаги без изменения репозитория — удобно для проверки.
@@ -200,9 +205,14 @@ cp release_tool/release_tool.toml .
 ```
 
 ### 5.2 Stage 2 — «Commit»
-`python -m release_tool.stage2 [--dry-run] [--push]`
+`python -m release_tool.stage2 [--dry-run] [--commit] [--push]`
 
-Коммитит все изменения (`git add -A`) используя `<commit_message_filename>`.
+Выполняет коммит и/или push изменений. Параметры `--commit` и `--push` независимы.
+
+**Параметры:**
+- `--commit` — создать коммит по подготовленным сообщениям
+- `--push` — выполнить git push для пакетов
+- Без параметров по умолчанию выполняется только `--commit`
 
 **Читает файлы:** `<changes_output_dir>/<package_name>/<commit_message_filename>`  
 *(по умолчанию: `release_tool/changes/<package_name>/commit_message.txt`)*
@@ -215,42 +225,38 @@ cp release_tool/release_tool.toml .
 [stage2] ✅ Завершено. Обработано пакетов: 1
 ```
 
-**Когда сообщений нет:**
+**При push показывает статус каждого пакета:**
 ```
-[stage2] Выполняем коммит и push для пакетов с подготовленными сообщениями...
+[stage2] Выполняем push для пакетов...
 [stage2] Проверяем пакет: hello_world
-[stage2]   hello_world: файл commit-сообщения не найден
-[stage2] ✅ Нет пакетов с подготовленными commit-сообщениями
+[stage2]   ✅ hello_world: изменения отправлены
+[stage2] Проверяем пакет: bench_utils
+[stage2]   📭 bench_utils: изменений нет
 ```
 
 ### 5.3 Stage 3 — «Since Tag»
-`python -m release_tool.stage3 [--dry-run]`
+`python -m release_tool.stage3 [--dry-run] [--tag TAG_NAME]`
 
-Собирает `git log <last_tag>..HEAD` и **полный diff** изменений → `<changes_output_dir>/<package>/<changes_since_tag_filename>`.
+Собирает **полный diff** изменений между тегом и HEAD → `<changes_output_dir>/<package>/<changes_since_tag_filename>`.
+
+**Параметры:**
+- `--tag TAG_NAME` — собрать изменения с указанного тега (по умолчанию — последний тег)
+- `--dry-run` — показать, что будет сохранено, без создания файлов
 
 **Создаёт файлы:**
-- `<changes_output_dir>/<package_name>/<changes_since_tag_filename>` — коммиты **и diff**
+- `<changes_output_dir>/<package_name>/<changes_since_tag_filename>` — **только diff**
 - `<changes_output_dir>/<package_name>/<tag_message_filename>` — **пустой файл** для LLM
 
-*(по умолчанию: `release_tool/changes/<package_name>/changes_since_tag.txt` и `release_tool/changes/<package_name>/tag_message.txt`)*
+**Примеры использования:**
+```bash
+# От последнего тега
+python -m release_tool.stage3
 
-**Когда есть новые коммиты:**
-```
-[stage3] Поиск коммитов после последнего тега...
-[stage3] Проверяем каталог: packages
-[stage3] Проверяем пакет: hello_world
-[stage3]   ✅ hello_world: коммиты сохранены в release_tool/changes/hello_world/changes_since_tag.txt
-[stage3]   📝 hello_world: создан пустой файл release_tool/changes/hello_world/tag_message.txt
-[stage3] ✅ Завершено. Обработано пакетов: 1
-```
+# От конкретного тега
+python -m release_tool.stage3 --tag v1.0.0
 
-**Когда новых коммитов нет:**
-```
-[stage3] Поиск коммитов после последнего тега...
-[stage3] Проверяем каталог: packages
-[stage3] Проверяем пакет: hello_world
-[stage3]   hello_world: нет новых коммитов после последнего тега
-[stage3] ✅ Нет пакетов с новыми коммитами после последнего тега
+# Проверка без создания файлов
+python -m release_tool.stage3 --tag v0.5.0 --dry-run
 ```
 
 ### 5.4 Stage 4 — «Release / Tag»
@@ -301,22 +307,68 @@ uv run python -m release_tool.stage4 --push
 ```
 python -m release_tool.stage1            # uncommitted
 # → заполняем commit_message.txt
-python -m release_tool.stage2 --push
+python -m release_tool.stage2 --commit --push
 
-python -m release_tool.stage3            # log since tag
+python -m release_tool.stage3            # diff since tag
 # → заполняем tag_message.txt
 python -m release_tool.stage4 --bump patch --push
 ```
 
+### Только коммиты (без релиза)
+```bash
+uv run python -m release_tool.stage1
+# Заполняем commit_message.txt
+uv run python -m release_tool.stage2 --commit  # только коммит
+```
+
+### Только push (коммиты уже есть)
+```bash
+uv run python -m release_tool.stage2 --push  # только отправка
+```
+
+### Очистка рабочих файлов
+```bash
+# Удаляет все файлы в release_tool/changes
+uv run python -m release_tool.clear
+
+# Показать, что будет удалено
+uv run python -m release_tool.clear --dry-run
+```
+
 ---
-## 6. Алгоритмы и детали реализации
+## 6. Дополнительные команды
+
+### 6.1 Очистка файлов изменений
+`python -m release_tool.clear [--dry-run]`
+
+Полностью очищает каталог `changes_output_dir` (по умолчанию `release_tool/changes`).
+
+**Когда нужно использовать:**
+- После завершения релиза для очистки временных файлов
+- При переключении между разными ветками/проектами
+- Для "чистого старта" процесса релиза
+
+**Пример вывода:**
+```
+[clear] ✅ Каталог release_tool/changes очищен
+```
+
+**С --dry-run:**
+```
+[clear] --dry-run: будет удалён каталог release_tool/changes
+  release_tool/changes/hello_world/changes_uncommitted.txt
+  release_tool/changes/hello_world/commit_message.txt
+```
+
+---
+## 7. Алгоритмы и детали реализации
 • Git-операции выполняются через `subprocess` (см. `release_tool/git_utils.py`).  
 • Проверка «есть ли изменения» — `git rev-list <last_tag>..HEAD --count` (>0 → есть).  
 • Инкремент версий — `packaging.version.Version` + RegExp; поддерживаются уровни `patch`/`minor`/`major` и `dev`.
 
 ---
 
-## 7. Типовые сценарии
+## 8. Типовые сценарии
 
 ### Проверка без изменений (dry-run)
 ```bash
@@ -332,7 +384,7 @@ uv run python -m release_tool.stage4 --dry-run --bump patch
 # 1. Фиксируем рабочие изменения
 uv run python -m release_tool.stage1
 # Заполняем commit_message.txt в каждом пакете
-uv run python -m release_tool.stage2 --push
+uv run python -m release_tool.stage2 --commit --push
 
 # 2. Готовим релиз
 uv run python -m release_tool.stage3
@@ -344,7 +396,7 @@ uv run python -m release_tool.stage4 --bump patch --push
 ```bash
 uv run python -m release_tool.stage1
 # Заполняем commit_message.txt
-uv run python -m release_tool.stage2  # без --push
+uv run python -m release_tool.stage2 --commit  # только коммит
 ```
 
 ### Только релиз (после коммитов)
@@ -375,7 +427,7 @@ uv run python -m release_tool.stage4 --bump dev --push
 ```
 
 ---
-## 8. Частые вопросы
+## 9. Частые вопросы
 | Вопрос | Ответ |
 |--------|-------|
 | **Нужен ли отдельный виртуальный env?** | Нет, достаточно установить зависимость `packaging`. |
@@ -384,5 +436,5 @@ uv run python -m release_tool.stage4 --bump dev --push
 | **Как работает bump для dev-версий?** | Если версия содержит `.devN` — увеличивается `N`; если `.dev` нет — добавляется `.dev1`. |
 
 ---
-## 9. Лицензия
+## 10. Лицензия
 MIT © 2025 
