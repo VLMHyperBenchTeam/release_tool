@@ -10,7 +10,7 @@ import pathlib
 import sys
 
 from .config import load_config
-from .git_utils import commit_all
+from .git_utils import commit_all, _push_repo, has_commits_to_push
 
 
 def process_package(pkg_path: pathlib.Path, cfg: dict, push: bool, dry_run: bool = False) -> None:
@@ -33,12 +33,22 @@ def process_package(pkg_path: pathlib.Path, cfg: dict, push: bool, dry_run: bool
 def run(argv: list[str] | None = None) -> None:
     cfg = load_config()
 
-    parser = argparse.ArgumentParser(description="Stage 2: commit изменений по пакетам")
-    parser.add_argument("--push", action="store_true", help="после коммита выполнить git push")
+    parser = argparse.ArgumentParser(description="Stage 2: commit и/или push изменений по пакетам")
+    parser.add_argument("--commit", action="store_true", help="создать коммит по подготовленным сообщениям")
+    parser.add_argument("--push", action="store_true", help="выполнить git push для пакетов")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    action = "коммит и push" if args.push else "коммит"
+    if not args.commit and not args.push:
+        # Для обратной совместимости по умолчанию совершаем commit (без push)
+        args.commit = True
+
+    actions_descr = []
+    if args.commit:
+        actions_descr.append("коммит")
+    if args.push:
+        actions_descr.append("push")
+    action = " и ".join(actions_descr)
     print(f"[stage2] Выполняем {action} для пакетов с подготовленными сообщениями...")
     
     root = pathlib.Path.cwd()
@@ -52,11 +62,26 @@ def run(argv: list[str] | None = None) -> None:
         if not pkg.is_dir():
             continue
         print(f"[stage2] Проверяем пакет: {pkg.name}")
-        process_package(pkg, cfg, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
+        # Commit (если запрошен)
+        if args.commit:
+            process_package(pkg, cfg, push=False, dry_run=args.dry_run or cfg.get("dry_run", False))
+
+        # Push (если запрошен)
+        if args.push:
+            remote_name = cfg.get("git_remote", "origin")
+            try:
+                if has_commits_to_push(pkg, remote=remote_name):
+                    _push_repo(pkg, remote_name)
+                    print(f"[stage2]   ✅ {pkg.name}: изменения отправлены")
+                else:
+                    print(f"[stage2]   📭 {pkg.name}: изменений нет")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[stage2]   ❌ {pkg.name}: push завершился ошибкой: {exc}")
+
         # Проверяем, был ли пакет обработан
         changes_dir = root / cfg.get("changes_output_dir", "release_tool/changes") / pkg.name
         msg_file = changes_dir / cfg["commit_message_filename"]
-        if msg_file.exists() and msg_file.read_text(encoding="utf-8").strip():
+        if args.commit and msg_file.exists() and msg_file.read_text(encoding="utf-8").strip():
             processed += 1
     
     if processed == 0:

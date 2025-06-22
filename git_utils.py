@@ -145,8 +145,20 @@ def has_uncommitted_changes(repo_path: pathlib.Path) -> bool:
     return bool(get_uncommitted_changes(repo_path))
 
 
+def _get_current_branch(repo_path: pathlib.Path) -> str:
+    """Возвращает имя текущей ветки."""
+    proc = _run_git(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"])
+    if proc.returncode != 0:
+        raise GitError(proc.stderr)
+    return proc.stdout.strip()
+
+
 def commit_all(repo_path: pathlib.Path, commit_message: str, remote: str = "origin", push: bool = False, dry_run: bool = False) -> None:
-    """Коммитит все индексированные изменения (git add -A) и при необходимости пушит."""
+    """Коммитит все индексированные изменения (git add -A) и при необходимости пушит.
+
+    Если push завершается ошибкой "set upstream first", выполняется повторная
+    попытка с флагом `--set-upstream` для текущей ветки.
+    """
 
     if dry_run:
         print(f"[dry-run] git -C {repo_path} add -A")
@@ -159,14 +171,18 @@ def commit_all(repo_path: pathlib.Path, commit_message: str, remote: str = "orig
     if proc.returncode != 0:
         raise GitError(proc.stderr)
 
-    proc = _run_git(repo_path, ["commit", "-m", commit_message], capture=False)
+    proc = _run_git(repo_path, ["commit", "-m", commit_message], capture=True)
     if proc.returncode != 0:
-        raise GitError(proc.stderr)
+        # Git возвращает код 1, если нечего коммитить.
+        combined_output = (proc.stdout or "") + (proc.stderr or "")
+        if "nothing to commit" in combined_output or "nothing added to commit" in combined_output:
+            # Ничего коммитить — игнорируем ошибку и продолжаем к push.
+            print(f"[git_utils] {repo_path.name}: нет изменений для коммита (пропускаем commit)")
+        else:
+            raise GitError(proc.stderr or proc.stdout)
 
     if push:
-        proc = _run_git(repo_path, ["push", remote], capture=False)
-        if proc.returncode != 0:
-            raise GitError(proc.stderr)
+        _push_repo(repo_path, remote)
 
 
 def get_diff_stat(repo_path: pathlib.Path) -> str:
@@ -194,4 +210,48 @@ def get_diff_since_tag(repo_path: pathlib.Path, tag: Optional[str]) -> str:
     proc = _run_git(repo_path, ["diff", revspec])
     if proc.returncode != 0:
         raise GitError(proc.stderr)
-    return proc.stdout.strip() 
+    return proc.stdout.strip()
+
+
+def _push_repo(repo_path: pathlib.Path, remote: str = "origin") -> None:
+    """Выполняет `git push` с резервным запуском `--set-upstream`, если у ветки нет upstream."""
+    proc = _run_git(repo_path, ["push", remote], capture=True)
+    if proc.returncode == 0:
+        return
+
+    stderr = proc.stderr or ""
+    # Если нет upstream для текущей ветки, повторяем push с --set-upstream
+    if "set upstream" in stderr or "--set-upstream" in stderr or "have no upstream" in stderr:
+        branch = _get_current_branch(repo_path)
+        fallback_cmd = ["push", "--set-upstream", remote, branch]
+        print(f"[git_utils] upstream not set, выполняем: git {' '.join(fallback_cmd)}")
+        fallback_proc = _run_git(repo_path, fallback_cmd, capture=True)
+        if fallback_proc.returncode != 0:
+            raise GitError(fallback_proc.stderr or stderr)
+    else:
+        raise GitError(stderr)
+
+
+def has_commits_to_push(repo_path: pathlib.Path, remote: str = "origin") -> bool:
+    """Возвращает *True*, если локальная ветка содержит коммиты, отсутствующие в *remote*.
+
+    Алгоритм:
+    1. Определяем имя текущей ветки.
+    2. Проверяем, существует ли соответствующая ветка в *remote*.
+       Если нет — считаем, что пушить есть что (ветка новая).
+    3. Считаем количество коммитов `rev-list <remote>/<branch>..HEAD`.
+    """
+    branch = _get_current_branch(repo_path)
+
+    # Проверяем, есть ли ветка на remote
+    proc_check = _run_git(repo_path, ["rev-parse", "--verify", f"{remote}/{branch}"], capture=True)
+    remote_branch_exists = proc_check.returncode == 0
+
+    if not remote_branch_exists:
+        # Ветка ещё не опубликована — есть что пушить
+        return True
+
+    proc = _run_git(repo_path, ["rev-list", "--count", f"{remote}/{branch}..HEAD"], capture=True)
+    if proc.returncode != 0:
+        raise GitError(proc.stderr)
+    return int(proc.stdout.strip() or "0") > 0 

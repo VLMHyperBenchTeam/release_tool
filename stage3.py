@@ -3,7 +3,7 @@
 Создаёт `<changes_since_tag_filename>` внутри пакета.
 
 Запуск:
-    python -m release_tool.stage3 [--dry-run] [--diff]
+    python -m release_tool.stage3 [--dry-run]
 """
 from __future__ import annotations
 
@@ -29,14 +29,10 @@ def _build_changes_text(
     Если *diff_text* не *None*, то добавляется секция с diff.
     """
 
-    if commits_log and diff_text:
-        return f"{commits_log}\n\n==== diff ====\n{diff_text}\n"
-
-    if commits_log:
-        return commits_log + "\n"
-
-    # Только diff
-    return f"==== diff ====\n{diff_text}\n"
+    # Возвращаем только diff без списка коммитов.
+    if diff_text:
+        return diff_text + "\n"
+    return ""
 
 
 def process_package(
@@ -50,11 +46,9 @@ def process_package(
         return
 
     last_tag = get_last_tag(pkg_path)
-    log = get_log_since_tag(pkg_path, last_tag)
-
-    diff_txt: str | None = None
-    if include_diff:
-        diff_txt = get_diff_since_tag(pkg_path, last_tag)
+    # Игнорируем лог коммитов — сохраняем только diff
+    diff_txt = get_diff_since_tag(pkg_path, last_tag)
+    log = ""
 
     if not log and not diff_txt:
         print(f"[stage3]   {pkg_path.name}: нет изменений для записи")
@@ -85,11 +79,6 @@ def run(argv: list[str] | None = None) -> None:
     cfg = load_config()
     parser = argparse.ArgumentParser(description="Stage 3: git log since last tag")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
-        "--diff",
-        action="store_true",
-        help="добавить git diff между последним тегом и HEAD в файл изменений",
-    )
     args = parser.parse_args(argv)
 
     print("[stage3] Поиск коммитов после последнего тега...")
@@ -111,7 +100,7 @@ def run(argv: list[str] | None = None) -> None:
             pkg,
             cfg,
             dry_run=args.dry_run or cfg.get("dry_run", False),
-            include_diff=args.diff,
+            include_diff=True,
         )
         # Проверяем был ли создан файл
         changes_file = (pathlib.Path.cwd() / cfg.get("changes_output_dir", "release_tool/changes") / pkg.name / cfg["changes_since_tag_filename"])

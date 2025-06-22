@@ -224,12 +224,12 @@ cp release_tool/release_tool.toml .
 ```
 
 ### 5.3 Stage 3 — «Since Tag»
-`python -m release_tool.stage3 [--dry-run] [--diff]`
+`python -m release_tool.stage3 [--dry-run]`
 
-Собирает `git log <last_tag>..HEAD` → `<changes_output_dir>/<package>/<changes_since_tag_filename>`.
+Собирает `git log <last_tag>..HEAD` и **полный diff** изменений → `<changes_output_dir>/<package>/<changes_since_tag_filename>`.
 
 **Создаёт файлы:**
-- `<changes_output_dir>/<package_name>/<changes_since_tag_filename>` — коммиты
+- `<changes_output_dir>/<package_name>/<changes_since_tag_filename>` — коммиты **и diff**
 - `<changes_output_dir>/<package_name>/<tag_message_filename>` — **пустой файл** для LLM
 
 *(по умолчанию: `release_tool/changes/<package_name>/changes_since_tag.txt` и `release_tool/changes/<package_name>/tag_message.txt`)*
