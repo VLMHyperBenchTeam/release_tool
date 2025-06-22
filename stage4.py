@@ -35,10 +35,26 @@ def bump_dev(version_str: str) -> str:
 
 
 def bump_semver(version_str: str, part: str) -> str:
-    m = _SEMVER_RE.match(version_str)
-    if not m:
-        raise ValueError("not semver")
-    major, minor, patch = map(int, (m.group("major"), m.group("minor"), m.group("patch")))
+    """Повышает *release*-часть версии, игнорируя суффиксы (например, .devN).
+
+    При bump-е *patch/minor/major* суффикс (.devN, .rc, и др.) отбрасывается, т.е.
+    строка ``0.0.1.dev3`` с ``part="patch"`` превратится в ``0.0.2``.
+
+    Основано на ``packaging.version.Version``: она корректно парсит PEP 440-совместимые
+    версии (в т. ч. c дев- и pre-релизами). Release-кортеж ``v.release`` всегда
+    содержит от 1 до 3 чисел (major, minor, patch). Недостающие элементы
+    дополняем нулями, чтобы гарантировать три компонента.
+    """
+
+    try:
+        v = Version(version_str)
+    except InvalidVersion as exc:
+        raise ValueError(f"Invalid version: {version_str}") from exc
+
+    # ``v.release`` — tuple(int, …) длиной 1-3. Дополним до 3.
+    release = list(v.release) + [0, 0]
+    major, minor, patch = release[:3]
+
     if part == "patch":
         patch += 1
     elif part == "minor":
@@ -49,6 +65,7 @@ def bump_semver(version_str: str, part: str) -> str:
         minor = patch = 0
     else:
         raise ValueError("unknown part")
+
     return f"{major}.{minor}.{patch}"
 
 
