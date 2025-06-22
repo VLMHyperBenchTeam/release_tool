@@ -76,3 +76,12 @@ venv.bak/
 
 # VS Code
 .vscode/
+
+# ignore changes/ directory
+changes/
+
+# игнорируем всё внутри release_tool/changes
+release_tool/changes/*
+
+# но оставляем .gitkeep
+!release_tool/changes/.gitkeep

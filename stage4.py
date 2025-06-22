@@ -69,7 +69,7 @@ def update_version_in_pyproject(pyproject: pathlib.Path, new_version: str) -> No
     pyproject.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def process_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, push: bool, dry_run: bool = False) -> None:
+def bump_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, dry_run: bool = False) -> None:
     root = pathlib.Path.cwd()
     changes_dir = root / cfg.get("changes_output_dir", "release_tool/changes") / pkg_path.name
     tag_msg_file = changes_dir / cfg["tag_message_filename"]
@@ -111,31 +111,56 @@ def process_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, push: boo
             raise GitError(proc.stderr)
 
     tag_name = f"{cfg['tag_prefix']}{new_version}"
+    # Bump только локально, push позже отдельной командой
     commit_and_tag(
         pkg_path,
         tag_message,
         tag_name,
         remote=cfg.get("git_remote", "origin"),
+        push=False,
         dry_run=dry_run,
     )
 
-    if push and not dry_run:
-        # Commit_and_tag already pushes; additional push not needed.
-        pass
+    print(f"[stage4]   ✅ {pkg_path.name}: версия {new_version} выпущена (без push)")
 
-    print(f"[stage4]   ✅ {pkg_path.name}: версия {new_version} выпущена{' и отправлена' if push else ''}")
+
+def push_package(pkg_path: pathlib.Path, cfg: dict, dry_run: bool = False) -> None:
+    """Отправляет коммиты и теги в удалённый репозиторий."""
+
+    remote = cfg.get("git_remote", "origin")
+    if dry_run:
+        print(f"[stage4]   [dry-run] git -C {pkg_path} push {remote}")
+        print(f"[stage4]   [dry-run] git -C {pkg_path} push {remote} --tags")
+        return
+
+    for cmd in [["push", remote], ["push", remote, "--tags"]]:
+        proc = _run_git(pkg_path, cmd, capture=False)
+        if proc.returncode != 0:
+            raise GitError(proc.stderr or f"git {' '.join(cmd)} failed in {pkg_path}")
+
+    print(f"[stage4]   ✅ {pkg_path.name}: изменения отправлены")
 
 
 def run(argv: list[str] | None = None) -> None:
     cfg = load_config()
-    parser = argparse.ArgumentParser(description="Stage 4: bump version & tag")
-    parser.add_argument("--bump", choices=["patch", "minor", "major", "dev"], default="dev")
-    parser.add_argument("--push", action="store_true")
+    parser = argparse.ArgumentParser(description="Stage 4: bump версии и/или push изменений")
+    parser.add_argument("--bump", choices=["patch", "minor", "major", "dev"], help="Какую часть версии увеличить")
+    parser.add_argument("--push", action="store_true", help="Отправить подготовленные релизы в удалённый репозиторий")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    action = f"bump версий ({args.bump})" + (" и push" if args.push else "")
-    print(f"[stage4] Выполняем {action} для пакетов с подготовленными tag-сообщениями...")
+    do_bump = args.bump is not None
+    do_push = args.push
+
+    if not (do_bump or do_push):
+        parser.error("Нужно указать хотя бы --bump или --push")
+
+    if do_bump and do_push:
+        print(f"[stage4] Выполняем bump версий ({args.bump}) с последующим push...")
+    elif do_bump:
+        print(f"[stage4] Выполняем bump версий ({args.bump}) без push...")
+    else:  # только push
+        print(f"[stage4] Выполняем push подготовленных релизов без изменения версий...")
     
     root = pathlib.Path.cwd()
     packages_dir = root / cfg["packages_dir"]
@@ -147,16 +172,23 @@ def run(argv: list[str] | None = None) -> None:
     for pkg in sorted(packages_dir.iterdir()):
         if not pkg.is_dir():
             continue
-        print(f"[stage4] Проверяем пакет: {pkg.name}")
-        process_package(pkg, cfg, bump_part=args.bump, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
-        # Проверяем, был ли пакет обработан
+
+        # Каталог changes/<pkg>/ и файл tag_message нужны и для bump, и для push
         changes_dir = root / cfg.get("changes_output_dir", "release_tool/changes") / pkg.name
         tag_msg_file = changes_dir / cfg["tag_message_filename"]
-        if tag_msg_file.exists() and tag_msg_file.read_text(encoding="utf-8").strip():
-            processed += 1
+        if not tag_msg_file.exists() or not tag_msg_file.read_text(encoding="utf-8").strip():
+            continue
+
+        print(f"[stage4] Обрабатываем пакет: {pkg.name}")
+        # Сначала bump (если требуется), затем push (если требуется)
+        if do_bump:
+            bump_package(pkg, cfg, bump_part=args.bump, dry_run=args.dry_run or cfg.get("dry_run", False))
+        if do_push:
+            push_package(pkg, cfg, dry_run=args.dry_run or cfg.get("dry_run", False))
+        processed += 1
     
     if processed == 0:
-        print("[stage4] ✅ Нет пакетов с подготовленными tag-сообщениями")
+        print("[stage4] ✅ Нет пакетов для обработки")
     else:
         print(f"[stage4] ✅ Завершено. Обработано пакетов: {processed}")
 

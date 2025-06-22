@@ -55,13 +55,40 @@ def get_last_tag(repo_path: pathlib.Path) -> Optional[str]:
 
 
 def get_log_since_tag(repo_path: pathlib.Path, tag: Optional[str]) -> str:
-    """Возвращает git log (subject + body) начиная с *tag* (или со всего репо, если *tag* == None)."""
+    """Возвращает список коммитов (полные сообщения) после *tag* в читабельном виде.
+
+    Формат вывода:
+        коммит 1
+        <subject>
+        <body>
+
+        коммит 2
+        <subject>
+        <body>
+        ...
+    """
     revspec = f"{tag}..HEAD" if tag else "HEAD"
-    fmt = "%h %s"
+
+    # Используем NUL-разделитель, чтобы безопасно разбить список коммитов
+    fmt = "%s%n%b%x00"  # subject, затем body, затем NUL-символ
     proc = _run_git(repo_path, ["log", revspec, f"--pretty=format:{fmt}"])
     if proc.returncode != 0:
         raise GitError(proc.stderr)
-    return proc.stdout.strip()
+
+    raw_output = proc.stdout
+    if not raw_output:
+        return ""
+
+    commits_raw = raw_output.split("\x00")
+    commits = [c.strip() for c in commits_raw if c.strip()]
+
+    formatted: list[str] = []
+    for idx, commit_msg in enumerate(commits, 1):
+        # Если коммит состоит только из subject строки, body может отсутствовать
+        formatted.append(f"коммит {idx}\n{commit_msg.strip()}\n")
+
+    # Между коммитами будет пустая строка благодаря завершающему \n в formatted.append
+    return "\n".join(formatted).strip()
 
 
 def commit_and_tag(
@@ -69,25 +96,40 @@ def commit_and_tag(
     commit_message: str,
     tag_name: str,
     remote: str = "origin",
+    push: bool = False,
     dry_run: bool = False,
 ) -> None:
-    """Коммитит все индексированные изменения, создаёт тег и пушит (если *dry_run* == False)."""
+    """Коммитит все индексированные изменения, создаёт тег.
+
+    Если *push* == True, выполняет push коммита и тега.
+    Если *dry_run* == True, команды лишь выводятся на экран.
+    """
     if dry_run:
         print(f"[dry-run] git -C {repo_path} commit -m \"{commit_message}\"")
         print(f"[dry-run] git -C {repo_path} tag -a {tag_name} -m \"{commit_message}\"")
-        print(f"[dry-run] git -C {repo_path} push {remote}")
-        print(f"[dry-run] git -C {repo_path} push {remote} {tag_name}")
+        if push:
+            print(f"[dry-run] git -C {repo_path} push {remote}")
+            print(f"[dry-run] git -C {repo_path} push {remote} {tag_name}")
         return
 
+    # Always commit and create tag locally
     for cmd in [
         ["commit", "-m", commit_message],
         ["tag", "-a", tag_name, "-m", commit_message],
-        ["push", remote],
-        ["push", remote, tag_name],
     ]:
         proc = _run_git(repo_path, cmd, capture=False)
         if proc.returncode != 0:
-            raise GitError(f"git {' '.join(cmd)} failed in {repo_path}")
+            raise GitError(proc.stderr or f"git {' '.join(cmd)} failed in {repo_path}")
+
+    # Push only if requested
+    if push:
+        for cmd in [
+            ["push", remote],
+            ["push", remote, tag_name],
+        ]:
+            proc = _run_git(repo_path, cmd, capture=False)
+            if proc.returncode != 0:
+                raise GitError(proc.stderr or f"git {' '.join(cmd)} failed in {repo_path}")
 
 
 def get_uncommitted_changes(repo_path: pathlib.Path) -> str:
@@ -138,6 +180,18 @@ def get_diff_stat(repo_path: pathlib.Path) -> str:
 def get_full_diff(repo_path: pathlib.Path) -> str:
     """Возвращает `git diff` (полный текст изменений) для рабочего каталога."""
     proc = _run_git(repo_path, ["diff"])
+    if proc.returncode != 0:
+        raise GitError(proc.stderr)
+    return proc.stdout.strip()
+
+
+def get_diff_since_tag(repo_path: pathlib.Path, tag: Optional[str]) -> str:
+    """Возвращает `git diff` между *tag* и HEAD.
+
+    Если *tag* равен *None*, то возвращается diff для последнего коммита (HEAD^..HEAD).
+    """
+    revspec = f"{tag}..HEAD" if tag else "HEAD^..HEAD"  # если тега нет, берём diff одного последнего коммита
+    proc = _run_git(repo_path, ["diff", revspec])
     if proc.returncode != 0:
         raise GitError(proc.stderr)
     return proc.stdout.strip() 
