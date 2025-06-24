@@ -1,7 +1,12 @@
-"""Stage 2: делает коммит во всех пакетах, используя подготовленные сообщения.
+"""
+Stage 2: делает коммит и/или push во всех пакетах, используя подготовленные сообщения.
 
 Запуск:
-    python -m release_tool.stage2 [--dry-run] [--push]
+    python -m release_tool.stage2 [--commit] [--push] [--dry-run]
+
+--commit  создать коммиты по файлам commit_message.txt
+--push    выполнить git push
+Если ни один флаг не указан, по умолчанию выполняется только --commit.
 """
 from __future__ import annotations
 

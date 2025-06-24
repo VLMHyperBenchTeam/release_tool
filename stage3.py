@@ -1,9 +1,10 @@
-"""Stage 3: собирает список коммитов после последнего тега.
+"""
+Stage 3: собирает список коммитов и/или diff после указанного (или последнего) тега.
 
 Создаёт `<changes_since_tag_filename>` внутри пакета.
 
 Запуск:
-    python -m release_tool.stage3 [--dry-run]
+    python -m release_tool.stage3 [--tag TAG_NAME] [--dry-run]
 """
 from __future__ import annotations
 
@@ -82,9 +83,16 @@ def process_package(
     # Создаём пустой файл для tag-сообщения в том же каталоге
     tag_msg_file = out_dir / cfg["tag_message_filename"]
     if not tag_msg_file.exists():
+        template = (
+            "## Релиз {VERSION}\n\n"
+            "_Изменения по сравнению с {PREV_VERSION}_\n\n"
+            "<!-- Опишите основные изменения здесь -->\n"
+        )
         if not dry_run:
-            tag_msg_file.write_text("", encoding="utf-8")
-        print(f"[stage3]   📝 {pkg_path.name}: создан пустой файл {tag_msg_file.relative_to(pathlib.Path.cwd())}")
+            tag_msg_file.write_text(template, encoding="utf-8")
+        print(
+            f"[stage3]   📝 {pkg_path.name}: создан файл {tag_msg_file.relative_to(pathlib.Path.cwd())} с плейсхолдерами {{VERSION}}, {{PREV_VERSION}}"
+        )
 
 
 def run(argv: list[str] | None = None) -> None:

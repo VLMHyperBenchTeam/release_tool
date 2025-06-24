@@ -14,7 +14,7 @@ from typing import Optional
 from packaging.version import Version, InvalidVersion  # type: ignore
 
 from .config import load_config
-from .git_utils import commit_and_tag, _run_git, GitError
+from .git_utils import commit_and_tag, _run_git, GitError, get_last_tag
 
 # regexes
 _SEMVER_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
@@ -86,6 +86,85 @@ def update_version_in_pyproject(pyproject: pathlib.Path, new_version: str) -> No
     pyproject.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _clean_workspace_sources(pyproject: pathlib.Path, dry_run: bool = False) -> bool:
+    """Удаляет строки внутри [tool.uv.sources] со ссылкой ``workspace = true``.
+
+    Возвращает True, если файл был изменён.
+    """
+
+    original_lines = pyproject.read_text(encoding="utf-8").splitlines()
+    new_lines: list[str] = []
+    in_sources_block = False
+    changed = False
+
+    for line in original_lines:
+        stripped = line.lstrip()
+
+        # Определяем вход/выход из секции [tool.uv.sources]
+        if stripped.startswith("[tool.uv.sources]"):
+            in_sources_block = True
+            new_lines.append(line)
+            continue
+
+        if in_sources_block and stripped.startswith("[") and not stripped.startswith("[tool.uv.sources]"):
+            # Вышли из блока источников
+            in_sources_block = False
+
+        if in_sources_block and "workspace" in stripped:
+            # Пропускаем ссылки вида { workspace = true }
+            changed = True
+            continue  # не добавляем строку
+
+        new_lines.append(line)
+
+    if changed and not dry_run:
+        pyproject.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    return changed
+
+
+def _update_tag_in_prod_pyproject(prod_pyproject: pathlib.Path, project_name: str, tag_name: str, dry_run: bool = False) -> bool:
+    """Меняет значение ``tag = "…"`` для указанного пакета в prod/pyproject.toml.
+
+    Parameters
+    ----------
+    prod_pyproject : pathlib.Path
+        Путь к prod/pyproject.toml.
+    project_name : str
+        Имя пакета так, как оно встречается в строке источников (например, "bench-utils").
+    tag_name : str
+        Новый тег (например, "v1.2.3").
+    dry_run : bool, default False
+        Если True, файл не изменяется, а возвращается, было бы ли изменение.
+
+    Returns
+    -------
+    bool
+        True, если файл был изменён.
+    """
+
+    if not prod_pyproject.exists():
+        # Нет prod-конфигурации – просто пропускаем
+        return False
+
+    pattern = re.compile(rf"^(\s*{re.escape(project_name)}\s*=.*?tag\s*=\s*\")([^\"]+)(\")(.+)$")
+    changed = False
+    new_lines: list[str] = []
+    for line in prod_pyproject.read_text(encoding="utf-8").splitlines():
+        m = pattern.match(line)
+        if m:
+            old_tag = m.group(2)
+            if old_tag != tag_name:
+                changed = True
+                line = f"{m.group(1)}{tag_name}{m.group(3)}{m.group(4)}"
+        new_lines.append(line)
+
+    if changed and not dry_run:
+        prod_pyproject.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    return changed
+
+
 def bump_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, dry_run: bool = False) -> None:
     root = pathlib.Path.cwd()
     changes_dir = root / cfg.get("changes_output_dir", "release_tool/changes") / pkg_path.name
@@ -93,8 +172,8 @@ def bump_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, dry_run: boo
     if not tag_msg_file.exists():
         print(f"[stage4]   {pkg_path.name}: файл tag-сообщения не найден")
         return
-    tag_message = tag_msg_file.read_text(encoding="utf-8").strip()
-    if not tag_message:
+    raw_tag_message = tag_msg_file.read_text(encoding="utf-8").strip()
+    if not raw_tag_message:
         print(f"[stage4]   {pkg_path.name}: пустое tag-сообщение")
         return
 
@@ -103,13 +182,19 @@ def bump_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, dry_run: boo
         print(f"[stage4]   {pkg_path.name}: pyproject.toml не найден")
         return
     current_version = None
+    project_name = None
     for line in pyproject.read_text(encoding="utf-8").splitlines():
-        if line.strip().startswith("version") and "=" in line:
+        stripped = line.strip()
+        if stripped.startswith("version") and "=" in stripped:
             current_version = line.split("=", 1)[1].strip().strip("\"'")
             break
+        if stripped.startswith("name") and "=" in stripped and project_name is None:
+            project_name = stripped.split("=", 1)[1].strip().strip("\"'")
     if current_version is None:
         print(f"[stage4]   {pkg_path.name}: версия не найдена в pyproject.toml")
         return
+    if project_name is None:
+        project_name = pkg_path.name.replace("_", "-")  # запасной вариант
 
     new_version = bump_version(current_version, bump_part)
 
@@ -119,6 +204,9 @@ def bump_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, dry_run: boo
         print(f"[stage4]   📦 {pkg_path.name}: {current_version} -> {new_version}")
         update_version_in_pyproject(pyproject, new_version)
 
+    # Удаляем workspace-ссылки для продового тега
+    _clean_workspace_sources(pyproject, dry_run=dry_run)
+
     # add -A
     if dry_run:
         print(f"[stage4]   [dry-run] git -C {pkg_path} add -A")
@@ -127,8 +215,24 @@ def bump_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, dry_run: boo
         if proc.returncode != 0:
             raise GitError(proc.stderr)
 
+    # Определяем предыдущий релиз
+    prev_tag = get_last_tag(pkg_path)
+    prev_version: str | None = None
+    if prev_tag:
+        prefix = cfg.get("tag_prefix", "")
+        if prefix and prev_tag.startswith(prefix):
+            prev_version = prev_tag[len(prefix) :]
+        else:
+            prev_version = prev_tag
+
+    tag_message = (
+        raw_tag_message.replace("{VERSION}", new_version)
+        .replace("{PREV_VERSION}", prev_version or "")
+        .strip()
+    )
+
     tag_name = f"{cfg['tag_prefix']}{new_version}"
-    # Bump только локально, push позже отдельной командой
+    # Создаём временный «чистый» коммит: bump + удаление workspace
     commit_and_tag(
         pkg_path,
         tag_message,
@@ -138,7 +242,40 @@ def bump_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, dry_run: boo
         dry_run=dry_run,
     )
 
-    print(f"[stage4]   ✅ {pkg_path.name}: версия {new_version} выпущена (без push)")
+    # Сохраняем исходный HEAD до любых изменений
+    orig_head = _run_git(pkg_path, ["rev-parse", "HEAD"], capture=True).stdout.strip()
+
+    if not dry_run:
+        # --------------------------------------------------
+        # Post-release: начинаем новый dev-цикл прямо в той же ветке
+        # --------------------------------------------------
+
+        # Восстанавливаем pyproject из исходного коммита (с workspace-ссылками)
+        _run_git(
+            pkg_path,
+            ["checkout", orig_head, "--", str(pyproject.relative_to(pkg_path))],
+            capture=False,
+        )
+
+        next_dev = _next_dev_version(new_version)
+        update_version_in_pyproject(pyproject, next_dev)
+        _run_git(pkg_path, ["add", str(pyproject.relative_to(pkg_path))], capture=False)
+        _run_git(
+            pkg_path,
+            [
+                "commit",
+                "-m",
+                f"chore: start {next_dev} development",
+            ],
+            capture=False,
+        )
+
+    # Обновляем prod/pyproject.toml
+    prod_py_path = root / cfg.get("prod_pyproject_path", "prod/pyproject.toml")
+    if _update_tag_in_prod_pyproject(prod_py_path, project_name, tag_name, dry_run=dry_run):
+        print(f"[stage4]   📝 prod/pyproject.toml: обновлён тег для {project_name} → {tag_name}")
+
+    print(f"[stage4]   ✅ {pkg_path.name}: версия {new_version} выпущена; начат dev-цикл {next_dev}")
 
 
 def push_package(pkg_path: pathlib.Path, cfg: dict, dry_run: bool = False) -> None:
@@ -150,6 +287,7 @@ def push_package(pkg_path: pathlib.Path, cfg: dict, dry_run: bool = False) -> No
         print(f"[stage4]   [dry-run] git -C {pkg_path} push {remote} --tags")
         return
 
+    # Сначала отправляем ветку (fast-forward до dev-коммита), затем теги
     for cmd in [["push", remote], ["push", remote, "--tags"]]:
         proc = _run_git(pkg_path, cmd, capture=False)
         if proc.returncode != 0:
@@ -208,6 +346,22 @@ def run(argv: list[str] | None = None) -> None:
         print("[stage4] ✅ Нет пакетов для обработки")
     else:
         print(f"[stage4] ✅ Завершено. Обработано пакетов: {processed}")
+
+
+def _next_dev_version(release_version: str) -> str:
+    """Возвращает версию следующего dev-цикла после *release_version*.
+
+    Алгоритм: увеличиваем patch-часть на +1 и добавляем суффикс ``.dev0``.
+    Например: ``0.1.2`` → ``0.1.3.dev0``.
+    """
+
+    try:
+        v = Version(release_version)
+    except InvalidVersion as exc:  # pragma: no cover
+        raise ValueError(f"Invalid release version: {release_version}") from exc
+
+    # Просто добавляем суффикс .dev0 к выпущенной версии
+    return f"{release_version}.dev0"
 
 
 if __name__ == "__main__":

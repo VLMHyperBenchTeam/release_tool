@@ -6,11 +6,11 @@
 
 ### ✨ Ключевые преимущества
 
-- **🎯 Полная автоматизация**: Автоматизирует весь цикл релиза от поиска изменений до публикации тегов
+- **🎯 Автоматизация**: Автоматизирует весь цикл релиза от поиска изменений до публикации тегов
 - **🧠 LLM-интеграция**: Использует ИИ для генерации осмысленных commit и tag сообщений
 - **📦 UV Workspace поддержка**: Специально разработан для работы с UV workspace структурой
 - **🔄 4-этапный процесс**: Четкое разделение на логические этапы для контроля и гибкости
-- **⚡ Экономия времени**: Сокращает время релиза с 30 минут до нескольких команд
+- **⚡ Экономия времени**: Сокращает время релиза до нескольких команд
 - **🛡️ Безопасность**: Dry-run режим для проверки без изменений + детальное логирование
 - **🔧 Гибкая конфигурация**: Единый конфигурационный файл с умным поиском настроек
 - **📊 Cемантическое версионирование**: Автоматическое управление версиями (patch/minor/major/dev)
@@ -35,22 +35,22 @@
 ## 1. Быстрый старт
 ```bash
 # 1️⃣ Проверяем незакоммиченные файлы
-python -m release_tool.stage1          # создаёт *changes_uncommitted.txt*
+uv run python -m release_tool.stage1          # создаёт *changes_uncommitted.txt*
 
 # 2️⃣ Отдаём файлы LLM → заполняем *commit_message.txt*
-python -m release_tool.stage2 --commit --push   # коммитим (и пушим) все изменения
+uv run python -m release_tool.stage2 --commit --push   # коммитим (и пушим) все изменения
 
 # 3️⃣ Собираем diff после последнего тега
-python -m release_tool.stage3          # создаёт *changes_since_tag.txt*
+uv run python -m release_tool.stage3          # создаёт *changes_since_tag.txt*
 
 # 4️⃣ Отдаём в LLM → заполняем *tag_message.txt*, затем bump+tag
-python -m release_tool.stage4 --bump patch --push   # 1.2.3 → 1.2.4 + тег
+uv run python -m release_tool.stage4 --bump patch --push   # 1.2.3 → 1.2.4 + тег
 #   (bump: patch|minor|major|dev)
 ```
 
 **Очистка файлов изменений:**
 ```bash
-python -m release_tool.clear           # очищает release_tool/changes
+uv run python -m release_tool.clear           # очищает release_tool/changes
 ```
 
 `--dry-run` или `dry_run=true` в конфиге выводит шаги без изменения репозитория — удобно для проверки.
@@ -142,6 +142,12 @@ packages_dir = "packages"
 changes_uncommitted_filename = "changes_uncommitted.txt"
 changes_since_tag_filename   = "changes_since_tag.txt"
 
+# Каталог, куда складываются файлы изменений
+changes_output_dir = "release_tool/changes"
+
+# Путь к prod/pyproject.toml для обновления тегов релизов
+prod_pyproject_path = "prod/pyproject.toml"
+
 # Файлы с сообщениями LLM
 commit_message_filename = "commit_message.txt"
 tag_message_filename    = "tag_message.txt"
@@ -171,7 +177,7 @@ cp release_tool/release_tool.toml .
 ---
 ## 5. Этапы работы
 ### 5.1 Stage 1 — «Uncommitted»
-`python -m release_tool.stage1 [--dry-run]`
+`uv run python -m release_tool.stage1 [--dry-run]`
 
 1. Проверяет `git status --porcelain`.
 2. Если есть изменения → файл `<changes_output_dir>/<package>/<changes_uncommitted_filename>` с:
@@ -205,7 +211,7 @@ cp release_tool/release_tool.toml .
 ```
 
 ### 5.2 Stage 2 — «Commit»
-`python -m release_tool.stage2 [--dry-run] [--commit] [--push]`
+`uv run python -m release_tool.stage2 [--dry-run] [--commit] [--push]`
 
 Выполняет коммит и/или push изменений. Параметры `--commit` и `--push` независимы.
 
@@ -235,7 +241,7 @@ cp release_tool/release_tool.toml .
 ```
 
 ### 5.3 Stage 3 — «Since Tag»
-`python -m release_tool.stage3 [--dry-run] [--tag TAG_NAME]`
+`uv run python -m release_tool.stage3 [--dry-run] [--tag TAG_NAME]`
 
 Собирает **полный diff** изменений между тегом и HEAD → `<changes_output_dir>/<package>/<changes_since_tag_filename>`.
 
@@ -250,17 +256,17 @@ cp release_tool/release_tool.toml .
 **Примеры использования:**
 ```bash
 # От последнего тега
-python -m release_tool.stage3
+uv run python -m release_tool.stage3
 
 # От конкретного тега
-python -m release_tool.stage3 --tag v1.0.0
+uv run python -m release_tool.stage3 --tag v1.0.0
 
 # Проверка без создания файлов
-python -m release_tool.stage3 --tag v0.5.0 --dry-run
+uv run python -m release_tool.stage3 --tag v0.5.0 --dry-run
 ```
 
 ### 5.4 Stage 4 — «Release / Tag»
-`python -m release_tool.stage4 [--dry-run] [--bump …] [--push]`
+`uv run python -m release_tool.stage4 [--dry-run] [--bump …] [--push]`
 
 *Параметры `--bump` и `--push` независимы — можно указать один из них или оба сразу.*
 
@@ -305,13 +311,13 @@ uv run python -m release_tool.stage4 --push
 
 ### Полный цикл
 ```
-python -m release_tool.stage1            # uncommitted
+uv run python -m release_tool.stage1            # uncommitted
 # → заполняем commit_message.txt
-python -m release_tool.stage2 --commit --push
+uv run python -m release_tool.stage2 --commit --push
 
-python -m release_tool.stage3            # diff since tag
+uv run python -m release_tool.stage3            # diff since tag
 # → заполняем tag_message.txt
-python -m release_tool.stage4 --bump patch --push
+uv run python -m release_tool.stage4 --bump patch --push
 ```
 
 ### Только коммиты (без релиза)
@@ -335,11 +341,17 @@ uv run python -m release_tool.clear
 uv run python -m release_tool.clear --dry-run
 ```
 
+### Дополнительные действия Stage 4
+> Дополнительно Stage&nbsp;4 автоматически:
+> • удаляет строки `workspace = true` из секции `[tool.uv.sources]` в `pyproject.toml` перед созданием тега (чтобы тег ссылался на «чистую» версию без workspace-зависимостей);
+> • после релиза начинает новый dev-цикл, делая коммит `chore: start X.Y.Z.dev0 development`;
+> • обновляет тег пакета в файле `prod/pyproject.toml` (путь задаётся ключом `prod_pyproject_path` в конфиге).
+
 ---
 ## 6. Дополнительные команды
 
 ### 6.1 Очистка файлов изменений
-`python -m release_tool.clear [--dry-run]`
+`uv run python -m release_tool.clear [--dry-run]`
 
 Полностью очищает каталог `changes_output_dir` (по умолчанию `release_tool/changes`).
 

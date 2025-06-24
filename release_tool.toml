@@ -2,8 +2,8 @@
 # Путь к каталогу с пакетами
 packages_dir = "packages"
 
-# Имя текстового файла, куда Stage 1 пишет список изменений (относительно каталога пакета)
-changes_filename = "release_changes.txt"
+# Путь к prod/pyproject.toml, где обновляется тег пакета при релизе (Stage 4)
+prod_pyproject_path = "prod/pyproject.toml"
 
 # Имя текстового файла, в котором пользователь сохраняет сгенерированный LLM commit-message
 commit_message_filename = "commit_message.txt"
