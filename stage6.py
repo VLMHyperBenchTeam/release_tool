@@ -3,7 +3,7 @@ from __future__ import annotations
 """Stage 6: начинает новый dev-цикл после релиза.
 
 Запуск:
-    python -m release_tool.stage6_next_dev [--branch dev_branch] [--push] [--dry-run]
+    python -m release_tool.stage6 [--branch dev_branch] [--push] [--dry-run]
 """
 
 import argparse
@@ -61,7 +61,9 @@ def _process_package(pkg_path: pathlib.Path, branch: str, push: bool, dry_run: b
 
     if dry_run:
         print(f"[stage6]   [dry-run] {pkg_path.name}: {current_version} -> {next_dev}")
-        print(f"[stage6]   [dry-run] git -C {pkg_path} checkout -B {branch} origin/main || git checkout {branch}")
+        print(
+            f"[stage6]   [dry-run] git -C {pkg_path} checkout -B {branch} origin/main || git checkout {branch}"
+        )
         print(f"[stage6]   [dry-run] commit 'chore: start {next_dev} development'")
         return
 

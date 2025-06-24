@@ -2,11 +2,8 @@ from __future__ import annotations
 
 """Stage 5: ставит аннотированный тег на release-коммит.
 
-Предполагается, что скрипт запускается *внутри CI* после мержа PR с release-коммитом
-в ветку `main`.
-
 Запуск:
-    python -m release_tool.stage5_tag [--push] [--dry-run]
+    python -m release_tool.stage5 [--push] [--dry-run]
 """
 
 import argparse
@@ -77,7 +74,13 @@ def run(argv: list[str] | None = None) -> None:
         # Считываем сообщение последнего коммита (release-commit)
         proc = _run_git(pkg, ["log", "-1", "--pretty=%B"])
         commit_msg = proc.stdout.strip() or f"Release {tag_name}"
-        _create_tag(pkg, tag_name, commit_msg, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
+        _create_tag(
+            pkg,
+            tag_name,
+            commit_msg,
+            push=args.push,
+            dry_run=args.dry_run or cfg.get("dry_run", False),
+        )
         print(f"[stage5]   ✅ тег создан")
         processed += 1
 
