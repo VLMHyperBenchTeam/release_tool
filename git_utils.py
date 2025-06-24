@@ -220,8 +220,16 @@ def _push_repo(repo_path: pathlib.Path, remote: str = "origin") -> None:
         return
 
     stderr = proc.stderr or ""
-    # Если нет upstream для текущей ветки, повторяем push с --set-upstream
-    if "set upstream" in stderr or "--set-upstream" in stderr or "have no upstream" in stderr:
+    # Если нет upstream для текущей ветки или он настроен некорректно,
+    # Git может вернуть разные сообщения. Обрабатываем наиболее распространённые варианты.
+    _NEED_UPSTREAM_PHRASES = [
+        "set upstream",  # стандартное предложение Git
+        "--set-upstream",  # ключ из подсказки Git
+        "have no upstream",  # ещё один вариант формулировки
+        "upstream branch of your current branch does not match",  # сообщение при mismatch имени ветки
+    ]
+
+    if any(phrase in stderr for phrase in _NEED_UPSTREAM_PHRASES):
         branch = _get_current_branch(repo_path)
         fallback_cmd = ["push", "--set-upstream", remote, branch]
         print(f"[git_utils] upstream not set, выполняем: git {' '.join(fallback_cmd)}")

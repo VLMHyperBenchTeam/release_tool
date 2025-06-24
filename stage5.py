@@ -58,22 +58,40 @@ def run(argv: list[str] | None = None) -> None:
         print(f"[stage5] каталог пакетов не найден: {packages_dir}", file=sys.stderr)
         sys.exit(1)
 
+    # Обрабатываем только те пакеты, для которых release_tool/changes/<pkg> существует
+    changes_root = root / cfg.get("changes_output_dir", "release_tool/changes")
+
     processed = 0
     for pkg in sorted(packages_dir.iterdir()):
         if not pkg.is_dir():
             continue
+
+        pkg_changes_dir = changes_root / pkg.name
+        if not pkg_changes_dir.exists():
+            # У пакета нет изменений в текущем релизе → пропускаем
+            continue
+
         pyproject = pkg / "pyproject.toml"
         if not pyproject.exists():
             continue
+
         version = _get_package_version(pyproject)
         tag_name = f"{cfg.get('tag_prefix', '')}{version}"
         print(f"[stage5] Обрабатываем пакет: {pkg.name} → {tag_name}")
         if _tag_exists(pkg, tag_name):
             print(f"[stage5]   🟡 тег уже существует, пропускаем")
             continue
-        # Считываем сообщение последнего коммита (release-commit)
-        proc = _run_git(pkg, ["log", "-1", "--pretty=%B"])
-        commit_msg = proc.stdout.strip() or f"Release {tag_name}"
+        # Используем содержимое tag_message.txt, если оно есть; иначе — сообщение последнего коммита
+        tag_msg_file = pkg_changes_dir / cfg["tag_message_filename"]
+        custom_msg: str = ""
+        if tag_msg_file.exists():
+            custom_msg = tag_msg_file.read_text(encoding="utf-8").strip()
+
+        if not custom_msg:
+            proc = _run_git(pkg, ["log", "-1", "--pretty=%B"])
+            custom_msg = proc.stdout.strip() or f"Release {tag_name}"
+
+        commit_msg = custom_msg
         _create_tag(
             pkg,
             tag_name,

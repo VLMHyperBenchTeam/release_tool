@@ -98,10 +98,18 @@ def run(argv: list[str] | None = None) -> None:
         print(f"[stage6] каталог пакетов не найден: {packages_dir}", file=sys.stderr)
         sys.exit(1)
 
+    # Фильтруем пакеты по наличию каталога изменений
+    changes_root = root / cfg.get("changes_output_dir", "release_tool/changes")
+
     processed = 0
     for pkg in sorted(packages_dir.iterdir()):
         if not pkg.is_dir():
             continue
+
+        if not (changes_root / pkg.name).exists():
+            # пакет не участвовал в текущем релизе
+            continue
+
         print(f"[stage6] Обрабатываем пакет: {pkg.name}")
         _process_package(pkg, args.branch, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
         processed += 1
