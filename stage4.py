@@ -55,6 +55,10 @@ def bump_semver(version_str: str, part: str) -> str:
     release = list(v.release) + [0, 0]
     major, minor, patch = release[:3]
 
+    # Если хотим выпустить текущий dev-релиз → просто убираем суффикс .devN
+    if v.dev is not None and part == "patch":
+        return f"{major}.{minor}.{patch}"
+
     if part == "patch":
         patch += 1
     elif part == "minor":
@@ -248,34 +252,41 @@ def bump_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, dry_run: boo
     if not dry_run:
         # --------------------------------------------------
         # Post-release: начинаем новый dev-цикл прямо в той же ветке
+        #   * для обычных релизов (patch/minor/major) — X.Y.(Z+1).dev0
+        #   * для dev-релизов bump делать не нужно
         # --------------------------------------------------
 
-        # Восстанавливаем pyproject из исходного коммита (с workspace-ссылками)
-        _run_git(
-            pkg_path,
-            ["checkout", orig_head, "--", str(pyproject.relative_to(pkg_path))],
-            capture=False,
-        )
+        next_dev: str | None = None
+        if bump_part != "dev":
+            # Восстанавливаем pyproject из исходного коммита (с workspace-ссылками)
+            _run_git(
+                pkg_path,
+                ["checkout", orig_head, "--", str(pyproject.relative_to(pkg_path))],
+                capture=False,
+            )
 
-        next_dev = _next_dev_version(new_version)
-        update_version_in_pyproject(pyproject, next_dev)
-        _run_git(pkg_path, ["add", str(pyproject.relative_to(pkg_path))], capture=False)
-        _run_git(
-            pkg_path,
-            [
-                "commit",
-                "-m",
-                f"chore: start {next_dev} development",
-            ],
-            capture=False,
-        )
+            next_dev = _next_dev_version(new_version)
+            update_version_in_pyproject(pyproject, next_dev)
+            _run_git(pkg_path, ["add", str(pyproject.relative_to(pkg_path))], capture=False)
+            _run_git(
+                pkg_path,
+                [
+                    "commit",
+                    "-m",
+                    f"chore: start {next_dev} development",
+                ],
+                capture=False,
+            )
 
-    # Обновляем prod/pyproject.toml
-    prod_py_path = root / cfg.get("prod_pyproject_path", "prod/pyproject.toml")
-    if _update_tag_in_prod_pyproject(prod_py_path, project_name, tag_name, dry_run=dry_run):
-        print(f"[stage4]   📝 prod/pyproject.toml: обновлён тег для {project_name} → {tag_name}")
+        # Обновляем prod/pyproject.toml
+        prod_py_path = root / cfg.get("prod_pyproject_path", "prod/pyproject.toml")
+        if _update_tag_in_prod_pyproject(prod_py_path, project_name, tag_name, dry_run=dry_run):
+            print(f"[stage4]   📝 prod/pyproject.toml: обновлён тег для {project_name} → {tag_name}")
 
-    print(f"[stage4]   ✅ {pkg_path.name}: версия {new_version} выпущена; начат dev-цикл {next_dev}")
+        if next_dev is not None:
+            print(f"[stage4]   ✅ {pkg_path.name}: версия {new_version} выпущена; начат dev-цикл {next_dev}")
+        else:
+            print(f"[stage4]   ✅ {pkg_path.name}: версия {new_version} выпущена")
 
 
 def push_package(pkg_path: pathlib.Path, cfg: dict, dry_run: bool = False) -> None:
@@ -351,8 +362,10 @@ def run(argv: list[str] | None = None) -> None:
 def _next_dev_version(release_version: str) -> str:
     """Возвращает версию следующего dev-цикла после *release_version*.
 
-    Алгоритм: увеличиваем patch-часть на +1 и добавляем суффикс ``.dev0``.
-    Например: ``0.1.2`` → ``0.1.3.dev0``.
+    • Если *release_version* — **stable** (без суффикса .devN) → увеличиваем patch-часть на +1 и
+      добавляем суффикс ``.dev0`` (``0.1.2`` → ``0.1.3.dev0``).
+    • Если *release_version* уже содержит ``.devN`` → просто увеличиваем ``N``
+      (``0.1.2.dev3`` → ``0.1.2.dev4``).
     """
 
     try:
@@ -360,8 +373,15 @@ def _next_dev_version(release_version: str) -> str:
     except InvalidVersion as exc:  # pragma: no cover
         raise ValueError(f"Invalid release version: {release_version}") from exc
 
-    # Просто добавляем суффикс .dev0 к выпущенной версии
-    return f"{release_version}.dev0"
+    # Если уже dev-релиз — инкрементируем dev-номер
+    if v.dev is not None:
+        return bump_dev(release_version)
+
+    # Stable release: bump patch
+    release = list(v.release) + [0, 0]
+    major, minor, patch = release[:3]
+    patch += 1
+    return f"{major}.{minor}.{patch}.dev0"
 
 
 if __name__ == "__main__":

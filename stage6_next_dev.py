@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+"""Stage 6: начинает новый dev-цикл после релиза.
+
+Запуск:
+    python -m release_tool.stage6_next_dev [--branch dev_branch] [--push] [--dry-run]
+"""
+
+import argparse
+import pathlib
+import sys
+import re
+from packaging.version import Version, InvalidVersion  # type: ignore
+
+from .config import load_config
+from .git_utils import _run_git, GitError, _push_repo
+
+
+def _next_dev_version(release_version: str) -> str:
+    try:
+        v = Version(release_version)
+    except InvalidVersion as exc:
+        raise ValueError(f"Invalid release version: {release_version}") from exc
+
+    # если уже dev → +1
+    if v.dev is not None:
+        num = v.dev + 1 if isinstance(v.dev, int) else 1
+        prefix = str(v).split(".dev")[0]
+        return f"{prefix}.dev{num}"
+
+    release = list(v.release) + [0, 0]
+    major, minor, patch = release[:3]
+    patch += 1
+    return f"{major}.{minor}.{patch}.dev0"
+
+
+def _get_current_version(pyproject: pathlib.Path) -> str:
+    pattern = re.compile(r"^\s*version\s*=\s*\"(?P<v>[^\"]+)\"")
+    for line in pyproject.read_text(encoding="utf-8").splitlines():
+        m = pattern.match(line)
+        if m:
+            return m.group("v")
+    raise RuntimeError("version field not found")
+
+
+def _set_version(pyproject: pathlib.Path, new_version: str) -> None:
+    lines = pyproject.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        if line.strip().startswith("version") and "=" in line:
+            lines[i] = f"version = \"{new_version}\""
+            break
+    pyproject.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _process_package(pkg_path: pathlib.Path, branch: str, push: bool, dry_run: bool) -> None:
+    pyproject = pkg_path / "pyproject.toml"
+    if not pyproject.exists():
+        return
+    current_version = _get_current_version(pyproject)
+    next_dev = _next_dev_version(current_version)
+
+    if dry_run:
+        print(f"[stage6]   [dry-run] {pkg_path.name}: {current_version} -> {next_dev}")
+        print(f"[stage6]   [dry-run] git -C {pkg_path} checkout -B {branch} origin/main || git checkout {branch}")
+        print(f"[stage6]   [dry-run] commit 'chore: start {next_dev} development'")
+        return
+
+    # checkout / create branch
+    proc = _run_git(pkg_path, ["checkout", "-B", branch, "origin/main"], capture=True)
+    if proc.returncode != 0:
+        # fallback: maybe branch exists locally
+        _run_git(pkg_path, ["checkout", "-B", branch], capture=False)
+
+    _set_version(pyproject, next_dev)
+    _run_git(pkg_path, ["add", str(pyproject.relative_to(pkg_path))], capture=False)
+    _run_git(pkg_path, ["commit", "-m", f"chore: start {next_dev} development"], capture=False)
+
+    if push:
+        _push_repo(pkg_path, "origin")
+        print(f"[stage6]   🚀 ветка {branch} отправлена")
+
+    print(f"[stage6]   ✅ {pkg_path.name}: начат dev-цикл {next_dev}")
+
+
+def run(argv: list[str] | None = None) -> None:
+    cfg = load_config()
+    parser = argparse.ArgumentParser(description="Stage 6: start next dev cycle")
+    parser.add_argument("--branch", default="dev_branch", help="Имя ветки для dev-цикла")
+    parser.add_argument("--push", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+
+    root = pathlib.Path.cwd()
+    packages_dir = root / cfg["packages_dir"]
+    if not packages_dir.is_dir():
+        print(f"[stage6] каталог пакетов не найден: {packages_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    processed = 0
+    for pkg in sorted(packages_dir.iterdir()):
+        if not pkg.is_dir():
+            continue
+        print(f"[stage6] Обрабатываем пакет: {pkg.name}")
+        _process_package(pkg, args.branch, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
+        processed += 1
+
+    print(f"[stage6] ✅ Завершено. Обработано пакетов: {processed}")
+
+
+if __name__ == "__main__":
+    run() 
