@@ -11,6 +11,7 @@ dependencies = [
 
 # CLI entry-points – удобно вызывать стадии как executables
 [project.scripts]
+release-tool-stage0 = "release_tool.stage0:run"
 release-tool-stage1 = "release_tool.stage1:run"
 release-tool-stage2 = "release_tool.stage2:run"
 release-tool-stage3 = "release_tool.stage3:run"
