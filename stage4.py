@@ -110,6 +110,9 @@ def _clean_workspace_sources(pyproject: pathlib.Path, dry_run: bool = False) -> 
             if isinstance(tbl, dict | tomlkit.items.Table):
                 if tbl.get("workspace") is True:
                     del tbl["workspace"]
+                    # если больше нет полей – удаляем источник целиком
+                    if len(tbl) == 0:
+                        del sources_table[name]
                     changed = True
     except KeyError:
         # секция может отсутствовать – ничего не меняем
