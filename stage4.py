@@ -37,6 +37,19 @@ from .git_utils import (
 _SEMVER_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 _DEV_RE = re.compile(r"^(?P<prefix>.*?)(?P<dev>\.dev(?P<num>\d+))?$")
 
+DEFAULT_TAG_TMPL = """## Релиз {VERSION}
+
+_Изменения по сравнению с {PREV_VERSION}_
+
+<!-- Опишите основные изменения здесь -->
+"""
+
+
+def _is_default_tag_message(text: str) -> bool:
+    """Возвращает True, если файл tag_message.txt не изменён пользователем."""
+    # Сравниваем после нормализации перевода строк и пробелов по краям
+    return text.strip() == DEFAULT_TAG_TMPL.strip()
+
 
 def bump_dev(version_str: str) -> str:
     try:
@@ -155,7 +168,11 @@ def _process_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, push: bo
     if not tag_msg_file.exists() or not tag_msg_file.read_text(encoding="utf-8").strip():
         print(f"[stage4]   {pkg_path.name}: файл tag-сообщения не найден или пуст")
         return False
-    raw_tag_msg = tag_msg_file.read_text(encoding="utf-8").strip()
+    raw_tag_msg = tag_msg_file.read_text(encoding="utf-8")
+    if _is_default_tag_message(raw_tag_msg):
+        print(f"[stage4]   {pkg_path.name}: файл tag-сообщения не изменён – пропущен")
+        return False
+    raw_tag_msg = raw_tag_msg.strip()
 
     pyproject = pkg_path / "pyproject.toml"
     if not pyproject.exists():
