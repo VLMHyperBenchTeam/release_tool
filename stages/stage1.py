@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
-import sys
+from typing import Any
 
 from ..config import load_config
 from ..git_utils import (
@@ -20,7 +20,7 @@ from ..core import iter_release_packages
 __all__ = ["run"]
 
 
-def process_package(pkg_path: pathlib.Path, cfg: dict, dry_run: bool = False) -> None:
+def process_package(pkg_path: pathlib.Path, cfg: dict[str, Any], dry_run: bool = False) -> None:
     # интересуют только незакоммиченные изменения
     if not has_uncommitted_changes(pkg_path):
         print(f"[stage1]   {pkg_path.name}: нет незакоммиченных изменений")

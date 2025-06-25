@@ -8,6 +8,7 @@ import argparse
 import pathlib
 import re
 import sys
+from typing import Any
 
 import tomlkit  # type: ignore  # third-party
 from packaging.version import InvalidVersion, Version  # type: ignore
@@ -151,7 +152,7 @@ def _update_dependency_tag(pyproject: pathlib.Path, dep_name: str, new_tag: str,
     return changed
 
 
-def _process_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, push: bool, dry_run: bool) -> bool:
+def _process_package(pkg_path: pathlib.Path, cfg: dict[str, Any], bump_part: str, push: bool, dry_run: bool) -> bool:
     """Обрабатывает пакет. Возвращает True, если staging/pyproject.toml был изменён."""
     root = pathlib.Path.cwd()
     changes_dir = root / cfg.get("changes_output_dir", "release_tool/changes") / pkg_path.name
