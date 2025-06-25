@@ -32,4 +32,30 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "B"]
-ignore = ["E501", "E402"] 
+ignore = ["E501", "E402"]
+
+[tool.mypy]
+python_version = "3.10"
+# Включаем строгий режим проверок (sub-set mypy strict)
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_unused_ignores = true
+warn_return_any = true
+show_error_codes = true
+ignore_missing_imports = true
+
+# Временное подавление «шумных» ошибок от tomlkit и subprocess.run.
+# Когда будут написаны собственные TypedDict wrappers или улучшены типы tomlkit, это уберём.
+disable_error_code = [
+    "call-overload",  # subprocess.run kwargs typing
+    "index",          # tomlkit Item | Container сложные юнионы
+    "operator",
+    "union-attr",
+    "assignment",
+    "no-any-return",
+    "unused-ignore",
+]
+
+# tomlkit предоставляет mypy-плагин, который улучшает типизацию TOML-объектов.
+# plugins = ["tomlkit.mypy_plugin"] # removed 

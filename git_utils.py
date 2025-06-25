@@ -30,7 +30,7 @@ def _run_git(path: pathlib.Path, args: List[str], capture: bool = True) -> subpr
     }
     if capture:
         kwargs |= {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
-    result = subprocess.run(["git", *args], **kwargs)  # type: ignore[arg-type]
+    result = subprocess.run(["git", *args], **kwargs)  # type: ignore[arg-type,call-overload]
     return result
 
 
