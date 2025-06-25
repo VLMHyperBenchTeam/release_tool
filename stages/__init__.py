@@ -1,12 +1,10 @@
 """Подпакет со стадиями release_tool.
 
-Пока оригинальная реализация стадий остаётся в корне пакета, но мы
-публикуем их здесь через динамический реэкспорт. Благодаря этому можно
-уже писать:
-
-    from release_tool.stages.stage1 import run
-
-и со временем перенести файлы физически без поломки API.
+• Основные реализации стадий теперь физически находятся внутри `release_tool/stages/`.
+• Для обратной совместимости при попытке импорта мы сначала пробуем
+  загрузить новый модуль (`release_tool.stages.stageN`), а если он отсутствует
+  (на время поэтапной миграции), то откатываемся к старому расположению
+  `release_tool.stageN`.
 """
 
 from __future__ import annotations
@@ -30,11 +28,17 @@ _STAGE_NAMES: Final[Iterable[str]] = (
 _current_pkg = __name__  # release_tool.stages
 
 for _name in _STAGE_NAMES:
-    _full_old = f"release_tool.{_name}"
-    _mod: ModuleType = importlib.import_module(_full_old)
-    # Регистрируем под новым путём — так import видит обе версии
+    try:
+        # Пытаемся импортировать новую реализацию из подпакета stages
+        _mod: ModuleType = importlib.import_module(f".{_name}", package=__name__)
+    except ModuleNotFoundError:
+        # На случай неполной миграции используем старый путь
+        _mod = importlib.import_module(f"release_tool.{_name}")
+
+    # Регистрируем под новым путём – так `import release_tool.stages.stageN` работает корректно
     sys.modules[f"{_current_pkg}.{_name}"] = _mod
-    # Добавляем в namespace пакета для from-import
+    # Добавляем атрибут в namespace пакета для `from release_tool.stages import stageN`
     globals()[_name] = _mod  # type: ignore[assignment]
 
+# Экспортируем список стадий как public API
 __all__ = list(_STAGE_NAMES) 
