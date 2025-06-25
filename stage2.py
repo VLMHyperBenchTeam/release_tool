@@ -2,7 +2,9 @@
 Stage 2: делает коммит и/или push во всех пакетах, используя подготовленные сообщения.
 
 Запуск:
-    python -m release_tool.stage2 [--commit] [--push] [--dry-run]
+    uv run release-tool-stage2 [--commit] [--push] [--dry-run]
+    # или
+    uv run python -m release_tool.stage2 [--commit] [--push] [--dry-run]
 
 --commit  создать коммиты по файлам commit_message.txt
 --push    выполнить git push

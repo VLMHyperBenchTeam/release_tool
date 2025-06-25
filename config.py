@@ -1,10 +1,8 @@
 import pathlib
 import sys
+from typing import Any
 
-try:
-    import tomllib  # type: ignore  # Python 3.11+
-except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib  # type: ignore
+import tomlkit  # type: ignore  # third-party
 
 
 def find_config_file() -> pathlib.Path:
@@ -54,8 +52,9 @@ def load_config(config_path: pathlib.Path | str | None = None) -> dict:
         print(f"[release_tool]   3. {pathlib.Path(__file__).resolve().parent / 'release_tool.toml'} (в модуле)", file=sys.stderr)
         sys.exit(1)
 
-    with path.open("rb") as fh:
-        toml_data: dict = tomllib.load(fh)
+    # Читаем текстом, чтобы использовать tomlkit.parse (возвращает TOML-Document)
+    toml_text = path.read_text(encoding="utf-8")
+    toml_data: Any = tomlkit.parse(toml_text)
 
     try:
         cfg = toml_data["tool"]["release_tool"]
@@ -64,6 +63,9 @@ def load_config(config_path: pathlib.Path | str | None = None) -> dict:
         cfg.setdefault("changes_since_tag_filename", "changes_since_tag.txt")
         cfg.setdefault("tag_message_filename", "tag_message.txt")
         cfg.setdefault("changes_output_dir", "release_tool/changes")
+        # Новые ключи 2025-06: пути к staging/prod pyproject
+        cfg.setdefault("staging_pyproject_path", "staging/pyproject.toml")
+        cfg.setdefault("prod_pyproject_path", "prod/pyproject.toml")
         
         # Добавляем информацию о том, откуда загружена конфигурация
         cfg["_config_source"] = str(path.relative_to(pathlib.Path.cwd()))

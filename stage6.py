@@ -3,14 +3,17 @@ from __future__ import annotations
 """Stage 6: начинает новый dev-цикл после релиза.
 
 Запуск:
-    python -m release_tool.stage6 [--branch dev_branch] [--push] [--dry-run]
+    uv run release-tool-stage6 [--branch dev_branch] [--push] [--dry-run]
+    # или
+    uv run python -m release_tool.stage6 [--branch dev_branch] [--push] [--dry-run]
 """
 
 import argparse
 import pathlib
 import sys
-import re
 from packaging.version import Version, InvalidVersion  # type: ignore
+
+import tomlkit  # type: ignore  # third-party
 
 from .config import load_config
 from .git_utils import _run_git, GitError, _push_repo
@@ -35,21 +38,21 @@ def _next_dev_version(release_version: str) -> str:
 
 
 def _get_current_version(pyproject: pathlib.Path) -> str:
-    pattern = re.compile(r"^\s*version\s*=\s*\"(?P<v>[^\"]+)\"")
-    for line in pyproject.read_text(encoding="utf-8").splitlines():
-        m = pattern.match(line)
-        if m:
-            return m.group("v")
-    raise RuntimeError("version field not found")
+    """Возвращает текущую версию из pyproject.toml (tomlkit)."""
+    doc = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
+    try:
+        return str(doc["project"]["version"])
+    except KeyError as exc:
+        raise RuntimeError("version field not found") from exc
 
 
 def _set_version(pyproject: pathlib.Path, new_version: str) -> None:
-    lines = pyproject.read_text(encoding="utf-8").splitlines()
-    for i, line in enumerate(lines):
-        if line.strip().startswith("version") and "=" in line:
-            lines[i] = f"version = \"{new_version}\""
-            break
-    pyproject.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    doc = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
+    try:
+        doc["project"]["version"] = new_version
+    except KeyError as exc:
+        raise RuntimeError("version field not found") from exc
+    pyproject.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
 
 def _process_package(pkg_path: pathlib.Path, branch: str, push: bool, dry_run: bool) -> None:

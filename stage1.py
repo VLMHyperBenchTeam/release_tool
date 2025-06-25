@@ -2,8 +2,10 @@
 
 Создаёт `<changes_uncommitted_filename>` внутри пакета.
 
-Запуск:
-    python -m release_tool.stage1 [--dry-run]
+Запуск (два эквивалентных варианта):
+    uv run release-tool-stage1 [--dry-run]
+    # или
+    uv run python -m release_tool.stage1 [--dry-run]
 """
 from __future__ import annotations
 

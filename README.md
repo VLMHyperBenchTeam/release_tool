@@ -35,27 +35,27 @@
 ## 1. Быстрый старт
 ```bash
 # 1️⃣ Проверяем незакоммиченные файлы
-uv run python -m release_tool.stage1          # создаёт *changes_uncommitted.txt*
+uv run release-tool-stage1            # создаёт *changes_uncommitted.txt*
 
 # 2️⃣ Отдаём файлы LLM → заполняем *commit_message.txt*
-uv run python -m release_tool.stage2 --commit --push   # коммитим (и пушим) все изменения
+uv run release-tool-stage2 --commit --push   # коммитим (и пушим) все изменения
 
 # 3️⃣ Собираем diff после последнего тега
-uv run python -m release_tool.stage3          # создаёт *changes_since_tag.txt*
+uv run release-tool-stage3            # создаёт *changes_since_tag.txt*
 
 # 4️⃣ Отдаём в LLM → заполняем *tag_message.txt*, затем *prepare*-коммит
-uv run python -m release_tool.stage4 --bump patch --push   # bump + commit в dev_branch
+uv run release-tool-stage4 --bump patch --push   # bump + commit в dev_branch
 
 # 5️⃣ Открываем Pull-Request dev_branch → main, ревью и merge (выходит за рамки скриптов)
 
-# 6️⃣ После merge выполняем вручную релиз-шаги:
-uv run python -m release_tool.stage5 --push       # тег
-uv run python -m release_tool.stage6 --push       # новый dev-цикл
+# 6️⃣ После merge выполняем релиз-шаги:
+uv run release-tool-stage5 --push       # тег
+uv run release-tool-stage6 --push       # новый dev-цикл
 ```
 
 **Очистка файлов изменений:**
 ```bash
-uv run python -m release_tool.clear           # очищает release_tool/changes
+uv run release-tool-clear            # очищает release_tool/changes
 ```
 
 `--dry-run` или `dry_run=true` в конфиге выводит шаги без изменения репозитория — удобно для проверки.
@@ -67,6 +67,17 @@ uv run python -m release_tool.clear           # очищает release_tool/chan
 ```bash
 # Добавляем release_tool как git submodule
 git submodule add https://github.com/VLMHyperBenchTeam/release_tool.git release_tool
+
+# Подключаем release_tool в workspace (корневой pyproject.toml)
+# [tool.uv.workspace]
+# members = ["packages/*", "release_tool"]
+
+# Добавляем в зависимости проекта (при необходимости)
+# [project]
+# dependencies = [
+#     "release_tool",
+#     ...
+# ]
 
 # Клонирование проектов с submodules
 git clone --recursive https://github.com/your-username/your-project.git
@@ -117,9 +128,9 @@ git push
 ---
 ## 3. Установка зависимостей
 ```
-pip install packaging
+pip install tomlkit packaging  # если не используете workspace-режим
 ```
-*(используется только пакет `packaging`; остальные модули — стандартная библиотека)*
+*(используются пакеты `tomlkit` и `packaging`; остальные модули входят в стандартную библиотеку Python)*
 
 ---
 ## 4. Конфигурация `release_tool.toml`
@@ -181,6 +192,13 @@ cp release_tool/release_tool.toml .
 
 ---
 ## 5. Этапы работы
+
+> ℹ️ `release_tool` устанавливается как пакет с CLI-entrypoints.  
+> Для каждого этапа доступны две формы вызова:  
+> • **Короткая**: `uv run release-tool-stageN`  
+> • **Полная**: `uv run python -m release_tool.stageN`  
+> Во всех примерах ниже вы можете использовать любую из них; рекомендуем короткую.
+
 ### 5.1 Stage 1 — «Uncommitted»
 `uv run python -m release_tool.stage1 [--dry-run]`
 
@@ -273,10 +291,11 @@ uv run python -m release_tool.stage3 --tag v0.5.0 --dry-run
 ### 5.4 Stage 4 — «Prepare» (release-commit без тега)
 `uv run python -m release_tool.stage4 --bump patch|minor|major|dev [--push] [--dry-run]`
 
-1. Увеличивает версию (`--bump …`) и обновляет `pyproject.toml`.
+1. Увеличивает версию (`--bump …`) и обновляет `pyproject.toml` в пакете.
 2. Читает `<tag_message_filename>` и создаёт **коммит** с этим сообщением.
-3. Не ставит тег, не запускает dev-цикл.
-4. Optionally `--push` — отправляет коммит (например, в `dev_branch`).
+3. Обновляет ссылку на пакет в `staging/pyproject.toml`, фиксируя dev-версию (см. раздел «Три workspace» ниже).
+4. Не ставит тег, не запускает dev-цикл.
+5. Optionally `--push` — отправляет коммит (например, в `dev_branch`).
 
 Далее разработчик открывает Pull Request из `dev_branch` → `main` и проходит review.
 
@@ -286,6 +305,7 @@ uv run python -m release_tool.stage3 --tag v0.5.0 --dry-run
 Исполняется после merge PR в `main`:
 • Находит версию в `pyproject.toml`.
 • Ставит аннотированный тег `v<version>` **на этом же коммите**.
+• Обновляет ссылку на пакет в `prod/pyproject.toml`, указывая на финальный тег (ключ `prod_pyproject_path` в конфиге).
 • Пушит тег (если `--push` или `cfg.dry_run = false`).
 
 ### 5.6 Stage 6 — «Next Dev»
@@ -340,10 +360,35 @@ uv run python -m release_tool.clear --dry-run
 
 • удаляет строки `workspace = true` из секции `[tool.uv.sources]` в `pyproject.toml`, чтобы релиз-коммит ссылался на «чистую» версию без workspace-зависимостей;
 
+• обновляет тег пакета в файле `staging/pyproject.toml` (путь задаётся ключом `staging_pyproject_path` в конфиге).
+
+### Дополнительные действия Stage 5
+Дополнительно Stage 5 автоматически:
+
 • обновляет тег пакета в файле `prod/pyproject.toml` (путь задаётся ключом `prod_pyproject_path` в конфиге).
 
 ---
-## 6. Включение автоматического CI
+## 6. Модель трёх workspace
+
+```
+main
+ ├─ prod/pyproject.toml     # релизные (стабильные) версии, теги
+ └─ staging/pyproject.toml  # dev-теги, готовые к ручному тестированию
+
+dev_branch
+ └─ исходный код пакетов (workspace=true)
+```
+
+1. **dev** — текущая разработка; зависимости подключаются из исходных пакетов через `workspace = true`.
+2. **staging** — фиксация dev-тегов, полученных на Stage 4. Можно тестировать целиком UV-workspace из GitHub-тегов до merge.
+3. **prod** — окончательные релизные теги, записываются на Stage 5.
+
+Таким образом:
+• Stage 4 формирует релиз-коммит с dev-версией и обновляет *staging*-список.
+• После успешного PR Stage 5 навешивает тег и отражает его в *prod*-списке.
+
+---
+## 7. Включение автоматического CI
 Файл примера workflow лежит в `release_tool/ci/release_flow.yml`.
 
 Чтобы включить автоматическое выполнение Stage 5/6 на каждый merge в `main`:
@@ -360,9 +405,9 @@ cp release_tool/ci/release_flow.yml .github/workflows/
 > ⚠️ Если позже понадобится временно выключить CI — закомментируйте блок `push:` в `.github/workflows/release_flow.yml` или удалите файл.
 
 ---
-## 7. Дополнительные команды
+## 8. Дополнительные команды
 
-### 7.1 Очистка файлов изменений
+### 8.1 Очистка файлов изменений
 `uv run python -m release_tool.clear [--dry-run]`
 
 Полностью очищает каталог `changes_output_dir` (по умолчанию `release_tool/changes`).
@@ -373,26 +418,26 @@ cp release_tool/ci/release_flow.yml .github/workflows/
 - Для "чистого старта" процесса релиза
 
 **Пример вывода:**
-```
+```bash
 [clear] ✅ Каталог release_tool/changes очищен
 ```
 
 **С --dry-run:**
-```
+```bash
 [clear] --dry-run: будет удалён каталог release_tool/changes
   release_tool/changes/hello_world/changes_uncommitted.txt
   release_tool/changes/hello_world/commit_message.txt
 ```
 
 ---
-## 8. Алгоритмы и детали реализации
+## 9. Алгоритмы и детали реализации
 • Git-операции выполняются через `subprocess` (см. `release_tool/git_utils.py`).  
 • Проверка «есть ли изменения» — `git rev-list <last_tag>..HEAD --count` (>0 → есть).  
 • Инкремент версий — `packaging.version.Version` + RegExp; поддерживаются уровни `patch`/`minor`/`major` и `dev`.
 
 ---
 
-## 9. Типовые сценарии
+## 10. Типовые сценарии
 
 ### Проверка без изменений (dry-run)
 ```bash
@@ -428,6 +473,7 @@ uv run python -m release_tool.stage2 --commit  # только коммит
 uv run python -m release_tool.stage3
 # Заполняем tag_message.txt
 uv run python -m release_tool.stage4 --bump minor --push  # bump + push
+```
 
 ### Только bump (без push)
 ```bash
@@ -451,14 +497,14 @@ uv run python -m release_tool.stage4 --bump dev --push
 ```
 
 ---
-## 10. Частые вопросы
+## 11. Частые вопросы
 | Вопрос | Ответ |
 |--------|-------|
-| **Нужен ли отдельный виртуальный env?** | Нет, достаточно установить зависимость `packaging`. |
+| **Нужен ли отдельный виртуальный env?** | Нет. Если проект собирается через UV-workspace — зависимости `release_tool` будут установлены автоматически. В обычном проекте достаточно `pip install tomlkit packaging`. |
 | **Можно ли использовать без LLM?** | Да — вручную заполните `release_commit_message.txt`. |
 | **Как работает bump для обычных версий?** | Поддерживаются три уровня: *patch*, *minor*, *major*. |
 | **Как работает bump для dev-версий?** | Если версия содержит `.devN` — увеличивается `N`; если `.dev` нет — добавляется `.dev1`. |
 
 ---
-## 11. Лицензия
-MIT © 2025 
+## 12. Лицензия
+MIT © 2025

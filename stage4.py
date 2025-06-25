@@ -3,14 +3,17 @@ from __future__ import annotations
 """Stage 4: делает *release*-коммит без тега.
 
 Запуск:
-    python -m release_tool.stage4 [--bump patch|minor|major|dev] [--push] [--dry-run]
+    uv run release-tool-stage4 --bump patch|minor|major|dev [--push] [--dry-run]
+    # или
+    uv run python -m release_tool.stage4 --bump patch|minor|major|dev [--push] [--dry-run]
 
 Алгоритм по пакету:
 1. Читает release_tool/changes/<pkg>/tag_message.txt (должен быть заполнен).
 2. Bump-ает версию (patch/minor/major/dev) в pyproject.toml.
 3. Удаляет строки `workspace = true` из `[tool.uv.sources]` (чистый релиз).
-4. `git add -A && git commit -m <tag_message>` (без тега!).
-5. (опц.) push коммит.
+4. Обновляет ссылку на пакет в *staging/pyproject.toml* на dev-тег.
+5. `git add -A && git commit -m <tag_message>` (без тега!).
+6. (опц.) push коммит.
 
 После этого разработчик создаёт PR dev_branch → main.
 """
@@ -21,6 +24,7 @@ import sys
 from packaging.version import Version, InvalidVersion  # type: ignore
 from typing import Optional
 import re
+import tomlkit  # type: ignore  # third-party
 
 from .config import load_config
 from .git_utils import (
@@ -83,94 +87,133 @@ def bump_version(version_str: str, part: str) -> str:
 
 
 def _clean_workspace_sources(pyproject: pathlib.Path, dry_run: bool = False) -> None:
-    """Удаляет строки `workspace = true` из секции [tool.uv.sources]"""
-    lines = pyproject.read_text(encoding="utf-8").splitlines()
-    new_lines: list[str] = []
-    inside_sources = False
+    """Удаляет ключ `workspace = true` из элементов [tool.uv.sources] с помощью tomlkit."""
+    doc = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
     changed = False
-    for line in lines:
-        if line.strip().startswith("[tool.uv.sources]"):
-            inside_sources = True
-            new_lines.append(line)
-            continue
-        if inside_sources:
-            if line.strip().startswith("["):
-                inside_sources = False
-            elif "workspace" in line and "true" in line:
-                changed = True
-                continue  # skip
-        new_lines.append(line)
+    try:
+        sources_table = doc["tool"]["uv"]["sources"]
+        # tomlkit возвращает TomlTable, поддерживающий dict-интерфейс
+        for name, tbl in list(sources_table.items()):
+            if isinstance(tbl, dict | tomlkit.items.Table):
+                if tbl.get("workspace") is True:
+                    del tbl["workspace"]
+                    changed = True
+    except KeyError:
+        # секция может отсутствовать – ничего не меняем
+        pass
+
     if changed and not dry_run:
-        pyproject.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        pyproject.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
 
 def update_version_in_pyproject(pyproject: pathlib.Path, new_version: str) -> None:
-    lines = pyproject.read_text(encoding="utf-8").splitlines()
-    for i, line in enumerate(lines):
-        if line.strip().startswith("version") and "=" in line:
-            lines[i] = f"version = \"{new_version}\""
-            break
-    else:
-        raise RuntimeError("version field not found")
-    pyproject.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    """Обновляет поле project.version через tomlkit."""
+    doc = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
+    try:
+        if doc["project"]["version"] == new_version:  # noqa: SIM118
+            return  # version уже актуальна
+        doc["project"]["version"] = new_version
+    except KeyError as exc:  # pragma: no cover – структура pyproject нарушена
+        raise RuntimeError("version field not found in pyproject.toml") from exc
+
+    pyproject.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
 
-def _process_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, push: bool, dry_run: bool) -> None:
+# --- helpers for staging pyproject -------------------------------------------------
+
+
+def _update_dependency_tag(pyproject: pathlib.Path, dep_name: str, new_tag: str, dry_run: bool = False) -> bool:
+    """Обновляет значение `tag` в [tool.uv.sources.<dep_name>] через tomlkit.
+
+    Возвращает True, если файл был изменён.
+    """
+    if not pyproject.exists():
+        return False
+
+    doc = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
+    changed = False
+    try:
+        src_tbl = doc["tool"]["uv"]["sources"]
+        if dep_name in src_tbl:
+            dep_entry = src_tbl[dep_name]
+            if dep_entry.get("tag") != new_tag:
+                dep_entry["tag"] = new_tag
+                changed = True
+    except KeyError:
+        pass  # секция sources отсутствует
+
+    if changed and not dry_run:
+        pyproject.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    return changed
+
+
+def _process_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, push: bool, dry_run: bool) -> bool:
+    """Обрабатывает пакет. Возвращает True, если staging/pyproject.toml был изменён."""
     root = pathlib.Path.cwd()
     changes_dir = root / cfg.get("changes_output_dir", "release_tool/changes") / pkg_path.name
     tag_msg_file = changes_dir / cfg["tag_message_filename"]
     if not tag_msg_file.exists() or not tag_msg_file.read_text(encoding="utf-8").strip():
         print(f"[stage4]   {pkg_path.name}: файл tag-сообщения не найден или пуст")
-        return
-    tag_message = tag_msg_file.read_text(encoding="utf-8").strip()
+        return False
+    raw_tag_msg = tag_msg_file.read_text(encoding="utf-8").strip()
 
     pyproject = pkg_path / "pyproject.toml"
     if not pyproject.exists():
         print(f"[stage4]   {pkg_path.name}: pyproject.toml не найден")
-        return
+        return False
 
-    # current version
-    current_version: Optional[str] = None
-    for line in pyproject.read_text(encoding="utf-8").splitlines():
-        if line.strip().startswith("version") and "=" in line:
-            current_version = line.split("=", 1)[1].strip().strip("\"'")
-            break
-    if current_version is None:
-        print(f"[stage4]   {pkg_path.name}: версия не найдена")
-        return
+    # Читаем pyproject через tomlkit
+    try:
+        doc_pkg = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
+        project_name = str(doc_pkg["project"]["name"])
+        current_version = str(doc_pkg["project"]["version"])
+    except KeyError:
+        print(f"[stage4]   {pkg_path.name}: имя или версия не найдены в pyproject.toml")
+        return False
 
     new_version = bump_version(current_version, bump_part)
+
+    # Подставляем плейсхолдеры в сообщении
+    tag_message = (
+        raw_tag_msg.replace("{VERSION}", new_version).replace("{PREV_VERSION}", current_version)
+    )
 
     if dry_run:
         print(f"[stage4]   [dry-run] {pkg_path.name}: {current_version} -> {new_version}")
         print(f"[stage4]   [dry-run] git -C {pkg_path} add -A")
         print(f"[stage4]   [dry-run] git -C {pkg_path} commit -m <tag_message>")
-        return
+    else:
+        print(f"[stage4]   📦 {pkg_path.name}: {current_version} -> {new_version}")
+        update_version_in_pyproject(pyproject, new_version)
+        _clean_workspace_sources(pyproject)
 
-    print(f"[stage4]   📦 {pkg_path.name}: {current_version} -> {new_version}")
-    update_version_in_pyproject(pyproject, new_version)
-    _clean_workspace_sources(pyproject)
+        # commit in package repo
+        proc = _run_git(pkg_path, ["add", "-A"], capture=False)
+        if proc.returncode != 0:
+            raise GitError(proc.stderr)
+        proc = _run_git(pkg_path, ["commit", "-m", tag_message], capture=False)
+        if proc.returncode != 0:
+            raise GitError(proc.stderr)
+        print(f"[stage4]   ✅ commit создан: {new_version}")
 
-    # commit
-    proc = _run_git(pkg_path, ["add", "-A"], capture=False)
-    if proc.returncode != 0:
-        raise GitError(proc.stderr)
-    proc = _run_git(pkg_path, ["commit", "-m", tag_message], capture=False)
-    if proc.returncode != 0:
-        raise GitError(proc.stderr)
-    print(f"[stage4]   ✅ commit создан: {new_version}")
+        if push:
+            try:
+                _push_repo(pkg_path, cfg.get("git_remote", "origin"))
+                print(f"[stage4]   🚀 изменения отправлены")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[stage4]   ❌ push error: {exc}")
 
-    if push:
-        try:
-            _push_repo(pkg_path, cfg.get("git_remote", "origin"))
-            print(f"[stage4]   🚀 изменения отправлены")
-        except Exception as exc:  # noqa: BLE001
-            print(f"[stage4]   ❌ push error: {exc}")
+    # --- staging pyproject update ------------------------
+    staging_py_path = root / cfg.get("staging_pyproject_path", "staging/pyproject.toml")
+    changed_staging = _update_dependency_tag(staging_py_path, project_name, new_version, dry_run=dry_run)
+    if changed_staging:
+        print(f"[stage4]   📝 staging/pyproject.toml обновлён → {project_name}={new_version}")
+    return changed_staging
 
 
 def run(argv: list[str] | None = None) -> None:
     cfg = load_config()
-    parser = argparse.ArgumentParser(description="Stage 4 (prepare release): commit without tag")
+    parser = argparse.ArgumentParser(description="Stage 4 (prepare release): commit without tag and update staging pyproject")
     parser.add_argument("--bump", required=True, choices=["patch", "minor", "major", "dev"], help="Какая часть версии")
     parser.add_argument("--push", action="store_true", help="Выполнить git push после коммита")
     parser.add_argument("--dry-run", action="store_true")
@@ -184,12 +227,29 @@ def run(argv: list[str] | None = None) -> None:
 
     print(f"[stage4] Выполняем prepare-release bump ({args.bump})…")
     processed = 0
+    staging_changed_any = False
     for pkg in sorted(packages_dir.iterdir()):
         if not pkg.is_dir():
             continue
         print(f"[stage4] Обрабатываем пакет: {pkg.name}")
-        _process_package(pkg, cfg, args.bump, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
+        changed = _process_package(pkg, cfg, args.bump, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
+        staging_changed_any = staging_changed_any or changed
         processed += 1
+
+    # commit root staging pyproject if changed
+    if staging_changed_any:
+        staging_py_path = root / cfg.get("staging_pyproject_path", "staging/pyproject.toml")
+        if args.dry_run or cfg.get("dry_run", False):
+            print(f"[stage4]   [dry-run] git add {staging_py_path}")
+            print(f"[stage4]   [dry-run] git commit -m \"chore(staging): update dependencies\"")
+            if args.push:
+                print(f"[stage4]   [dry-run] git push {cfg.get('git_remote', 'origin')}")
+        else:
+            try:
+                commit_all(root, "chore(staging): update dependencies", remote=cfg.get("git_remote", "origin"), push=args.push)
+                print(f"[stage4]   ✅ staging/pyproject.toml коммитнут")
+            except Exception as exc:
+                print(f"[stage4]   ❌ commit staging error: {exc}")
 
     print(f"[stage4] ✅ Завершено. Обработано пакетов: {processed}")
 

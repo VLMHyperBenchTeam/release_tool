@@ -1,0 +1,24 @@
+[project]
+name = "release_tool"
+version = "0.1.0.dev0"
+description = "Multi-stage release helper for monorepos (stages 1-6)."
+authors = [ { name = "VLMHyperBench Team" } ]
+requires-python = ">=3.10"
+dependencies = [
+    "tomlkit>=0.13",
+    "packaging>=23.0",
+]
+
+# CLI entry-points – удобно вызывать стадии как executables
+[project.scripts]
+release-tool-stage1 = "release_tool.stage1:run"
+release-tool-stage2 = "release_tool.stage2:run"
+release-tool-stage3 = "release_tool.stage3:run"
+release-tool-stage4 = "release_tool.stage4:run"
+release-tool-stage5 = "release_tool.stage5:run"
+release-tool-stage6 = "release_tool.stage6:run"
+release-tool-clear  = "release_tool.clear:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build" 

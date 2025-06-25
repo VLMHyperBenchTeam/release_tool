@@ -3,7 +3,9 @@ from __future__ import annotations
 """Utility: очищает каталог с файлами изменений (release_tool/changes).
 
 Запуск:
-    python -m release_tool.clear [--dry-run]
+    uv run release-tool-clear [--dry-run]
+    # или
+    uv run python -m release_tool.clear [--dry-run]
 """
 
 import argparse

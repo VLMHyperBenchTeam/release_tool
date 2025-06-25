@@ -4,7 +4,9 @@ Stage 3: собирает список коммитов и/или diff посл�
 Создаёт `<changes_since_tag_filename>` внутри пакета.
 
 Запуск:
-    python -m release_tool.stage3 [--tag TAG_NAME] [--dry-run]
+    uv run release-tool-stage3 [--tag TAG_NAME] [--dry-run]
+    # или
+    uv run python -m release_tool.stage3 [--tag TAG_NAME] [--dry-run]
 """
 from __future__ import annotations
 

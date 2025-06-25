@@ -2,8 +2,11 @@
 # Путь к каталогу с пакетами
 packages_dir = "packages"
 
-# Путь к prod/pyproject.toml, где обновляется тег пакета при релизе (Stage 4)
+# Путь к prod/pyproject.toml, где обновляется тег пакета при релизе (Stage 5)
 prod_pyproject_path = "prod/pyproject.toml"
+
+# Путь к staging/pyproject.toml, где фиксируются dev-теги (Stage 4)
+staging_pyproject_path = "staging/pyproject.toml"
 
 # Имя текстового файла, в котором пользователь сохраняет сгенерированный LLM commit-message
 commit_message_filename = "commit_message.txt"
