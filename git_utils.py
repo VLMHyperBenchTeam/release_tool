@@ -5,6 +5,9 @@ import pathlib
 import subprocess
 from typing import List, Optional
 
+# deprecated shim — переехал в release_tool.core.git_utils
+from release_tool.core.git_utils import *  # type: ignore  # noqa: F401,F403
+
 
 class GitError(RuntimeError):
     """Исключение git-операций."""
