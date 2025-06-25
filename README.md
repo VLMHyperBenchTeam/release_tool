@@ -207,13 +207,53 @@ cp release_tool/release_tool.toml .
 > • **Полная**: `uv run python -m release_tool.stageN`  
 > Во всех примерах ниже вы можете использовать любую из них; рекомендуем короткую.
 
-### 5.0 Stage 0 — «Dev Branch Prepare»
-`uv run python -m release_tool.stage0 [--branch dev_branch] [--base-branch main] [--push] [--dry-run]`
+### 5.0 Stage 0 — «Dev Branch Prepare» _(обновлено)_
 
-1. Для каждого пакета, участвующего в текущем релизе, выполняет `git fetch`, `git checkout -B <branch> <origin>/<base_branch>`.
-2. (опционально `--push`) отправляет ветку в origin.
+```bash
+uv run release-tool-stage0 \
+  [--branch dev_branch]   # имя dev-ветки (по умолчанию dev_branch) \
+  [--base-branch main]    # базовая ветка, от которой создаётся dev-ветка (по умолчанию main)
+  [--push]                # после подготовки пушит ветку (если есть коммиты)
+  [--dry-run]             # печатает команды, но не выполняет их
 
-После подготовки веток переходите к Stage 1.
+# дополнительные, см. ниже
+```
+
+Что делает:
+
+1. `git fetch <remote>` — синхронизирует refs.
+2. Если `<remote>/dev_branch` существует:
+   • переключается на локальную `dev_branch` (создаёт, если нет);
+   • делает fast-forward до удалённой ветки.
+3. Если удалённой ветки нет — создаёт `dev_branch` от `<base_branch>` (или fallback-ветки, см. опции).
+4. При необходимости временно убирает незакоммиченные изменения в stash (контекст-менеджер `temporary_stash`).
+5. Настраивает upstream `dev_branch → <remote>/dev_branch`.
+6. (опционально `--push`) отправляет коммиты.
+7. Печатает отчёт (ahead/behind, наличие stash, uncommitted и т.д.).
+
+#### Новые опции
+
+| Флаг | Что делает |
+|------|------------|
+| `--no-stash` | Если есть незакоммиченные изменения — завершает работу с ошибкой вместо auto-stash. |
+| `--stash-name NAME` | Имя для временного stash (по умолчанию `stage0-auto-<branch>`). |
+| `--keep-stash` | Не удалять stash после успешного `stash pop` без конфликтов. |
+| `--fallback-head / --no-fallback-head` | При отсутствии `<remote>/<base_branch>` использовать `<remote>/HEAD` как стартовую ветку. |
+| `--fallback-local / --no-fallback-local` | Если remote-ветка `<base_branch>` отсутствует, использовать локальную ветку `<base_branch>`. |
+
+#### Пример вывода
+
+```
+[stage0] Обрабатываем пакет: hello_world
+[stage0]   ✅ hello_world: подготовлена ветка dev_branch (от main)
+[stage0] ✅ Завершено. Обработано пакетов: 5
+[stage0] Итог:
+  • hello_world     — локально; ok
+  • bench_utils     — локально; ok
+  …
+```
+
+После Stage 0 можно переходить к Stage 1.
 
 ### 5.1 Stage 1
 `uv run python -m release_tool.stage1 [--dry-run]`
