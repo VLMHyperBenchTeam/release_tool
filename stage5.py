@@ -19,6 +19,18 @@ from .config import load_config
 from .git_utils import _run_git, GitError, commit_all, _push_repo
 
 
+DEFAULT_TAG_TMPL = """## Релиз {VERSION}
+
+_Изменения по сравнению с {PREV_VERSION}_
+
+<!-- Опишите основные изменения здесь -->
+"""
+
+
+def _is_default_tag_message(text: str) -> bool:
+    return text.strip() == DEFAULT_TAG_TMPL.strip()
+
+
 def _get_package_version(pyproject: pathlib.Path) -> str:
     """Возвращает текущую версию пакета из pyproject.toml через tomlkit."""
     doc = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
@@ -81,6 +93,9 @@ def run(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Stage 5: create and push annotated tag + update prod pyproject")
     parser.add_argument("--push", action="store_true", help="git push тег после создания (а также коммит prod)")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--base-branch", default="main", help="Целевая ветка, в которой находится релизный коммит")
+    parser.add_argument("--delete-branch", help="Локальная ветка, которую удалить после успешного merge")
+    parser.add_argument("--sync", action="store_true", help="Перед тегированием выполнить fetch/checkout/pull base-branch и (опц.) удалить dev-ветку")
     args = parser.parse_args(argv)
 
     root = pathlib.Path.cwd()
@@ -119,8 +134,12 @@ def run(argv: list[str] | None = None) -> None:
         tag_msg_file = pkg_changes_dir / cfg["tag_message_filename"]
         raw_msg: str = ""
         if tag_msg_file.exists():
-            raw_msg = tag_msg_file.read_text(encoding="utf-8").strip()
-
+            candidate = tag_msg_file.read_text(encoding="utf-8")
+            if _is_default_tag_message(candidate):
+                print(f"[stage5]   {pkg.name}: файл tag-сообщения не изменён – пропускаем")
+                continue  # переходим к следующему пакету
+            raw_msg = candidate.strip()
+        # если сообщение пустое – возьмём из последнего коммита
         if not raw_msg:
             proc = _run_git(pkg, ["log", "-1", "--pretty=%B"])
             raw_msg = proc.stdout.strip() or f"Release {tag_name}"
@@ -143,6 +162,15 @@ def run(argv: list[str] | None = None) -> None:
             prod_changed_any = prod_changed_any or changed_prod
             if changed_prod:
                 print(f"[stage5]   📝 prod/pyproject.toml обновлён → {pkg_project_name}={tag_name}")
+
+        # optional sync checkout
+        if args.sync:
+            remote_name = cfg.get("git_remote", "origin")
+            _run_git(pkg, ["fetch", remote_name], capture=False)
+            _run_git(pkg, ["checkout", args.base_branch], capture=False)
+            _run_git(pkg, ["pull", remote_name, args.base_branch], capture=False)
+            if args.delete_branch:
+                _run_git(pkg, ["branch", "-D", args.delete_branch], capture=False)
 
         _create_tag(
             pkg,
