@@ -27,9 +27,9 @@ from .git_helpers import (
     fast_forward,
     checkout_branch,
     ensure_tracking,
-    calc_ahead_behind,
     temporary_stash,
 )
+from .status_analyzer import analyze_repo_status, RepoStatus
 
 
 @dataclass
@@ -54,11 +54,11 @@ def _process_package(
     keep_stash: bool,
     fallback_head: bool,
     fallback_local: bool,
-) -> tuple[bool, bool, int, int]:
+) -> tuple[bool, bool, RepoStatus]:
     """Готовит dev-ветку *branch* в пакете *pkg*.
 
     Возвращает:
-        push_done, stash_kept, ahead, behind
+        push_done, stash_kept, repo_status
     """
 
     # --- dry-run ---------------------------------------------------------
@@ -67,7 +67,8 @@ def _process_package(
         print(f"[stage0]   [dry-run] git -C {pkg} checkout -B {branch} {remote}/{base}")
         if push:
             print(f"[stage0]   [dry-run] git -C {pkg} push --set-upstream {remote} {branch}")
-        return False, False, 0, 0
+        dummy_status = RepoStatus(ahead=0, behind=0, uncommitted=False)
+        return False, False, dummy_status
 
     # --------------------------------------------------------------------
     _run_git(pkg, ["fetch", remote], capture=False)
@@ -109,7 +110,8 @@ def _process_package(
         workspace_dirty = bool(_run_git(pkg, ["status", "--porcelain"], capture=True).stdout.strip())
         if workspace_dirty and no_stash:
             print(f"[stage0]   ❌ {pkg.name}: есть незакоммиченные изменения, --no-stash установлен — пакет пропущен")
-            return False, False, 0, 0
+            dummy_status = RepoStatus(ahead=0, behind=0, uncommitted=False)
+            return False, False, dummy_status
 
         with temporary_stash(
             pkg,
@@ -132,15 +134,12 @@ def _process_package(
     elif push:
         print("[stage0]   📭 изменений нет — push пропущен")
 
-    # --- ahead/behind ---------------------------------------------------
-    if remote_branch_exists(pkg, remote, branch):
-        ahead, behind = calc_ahead_behind(pkg, branch, f"{remote}/{branch}")
-    else:
-        ahead = behind = 0
+    # --- анализ состояния ветки ----------------------------------------
+    repo_status = analyze_repo_status(pkg, branch, remote)
 
     print(f"[stage0]   ✅ {pkg.name}: подготовлена ветка {branch} (от {base})")
 
-    return push_done, stash_kept, ahead, behind
+    return push_done, stash_kept, repo_status
 
 
 def run(argv: list[str] | None = None) -> None:
@@ -184,7 +183,7 @@ def run(argv: list[str] | None = None) -> None:
             continue
 
         print(f"[stage0] Обрабатываем пакет: {pkg.name}")
-        push_done, stash_kept, ahead, behind = _process_package(
+        push_done, stash_kept, repo_status = _process_package(
             pkg,
             args.branch,
             args.base_branch,
@@ -198,17 +197,14 @@ def run(argv: list[str] | None = None) -> None:
             fallback_local=args.fallback_local,
         )
         # gather summary
-        uncommitted_proc = _run_git(pkg, ["status", "--porcelain"])
-        uncommitted_flag = bool(uncommitted_proc.stdout.strip())
-
         results.append(
             PackageResult(
                 name=pkg.name,
                 push_done=push_done,
                 stash_kept=stash_kept,
-                ahead=ahead,
-                behind=behind,
-                uncommitted=uncommitted_flag,
+                ahead=repo_status.ahead,
+                behind=repo_status.behind,
+                uncommitted=repo_status.uncommitted,
             )
         )
         processed += 1
