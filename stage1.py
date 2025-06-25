@@ -20,6 +20,7 @@ from .git_utils import (
     get_uncommitted_changes,
     has_uncommitted_changes,
 )
+from .packages import iter_release_packages  # локальный импорт, чтобы избежать циклов
 
 
 def process_package(pkg_path: pathlib.Path, cfg: dict, dry_run: bool = False) -> None:
@@ -73,21 +74,15 @@ def run(argv: list[str] | None = None) -> None:
     print(f"[stage1] Конфигурация: {cfg.get('_config_source', 'неизвестно')}")
     
     root = pathlib.Path.cwd()
-    packages_dir = root / cfg["packages_dir"]
-    if not packages_dir.is_dir():
-        print(f"[stage1] каталог пакетов не найден: {packages_dir}", file=sys.stderr)
-        sys.exit(1)
 
-    print(f"[stage1] Проверяем каталог: {packages_dir}")
-    
+    packages_iter = iter_release_packages(cfg, include_all=True)
+
     changed = 0
-    for pkg in sorted(packages_dir.iterdir()):
-        if not pkg.is_dir():
-            continue
+    for pkg in packages_iter:
         print(f"[stage1] Проверяем пакет: {pkg.name}")
-        # process_package отвечает записью файлов.
-        process_package(pkg, cfg, dry_run=args.dry_run or cfg.get("dry_run", False))
-        changes_file = (pathlib.Path.cwd() / cfg.get("changes_output_dir", "release_tool/changes") / pkg.name / cfg["changes_uncommitted_filename"])
+        process_package(pkg.path, cfg, dry_run=args.dry_run or cfg.get("dry_run", False))
+
+        changes_file = pkg.changes_dir / cfg["changes_uncommitted_filename"]
         if changes_file.exists():
             changed += 1
 
