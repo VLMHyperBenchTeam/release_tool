@@ -1,11 +1,8 @@
-from importlib import import_module as _imp
+import importlib as _importlib
 import sys
 
-# Упрощаем «star import»
-_stages = _imp("release_tool.stages")
-
 # ---------------------------------------------------------------------------
-# Динамический реэкспорт core-модулей
+# Динамический реэкспорт core-модулей (должен быть ДО импорта stages)
 # ---------------------------------------------------------------------------
 for _m in (
     "config",
@@ -17,11 +14,15 @@ for _m in (
     "utils",
 ):
     _mod_full = f"release_tool.core.{_m}"
-    _mod = _imp(_mod_full)
+    _mod = _importlib.import_module(_mod_full)
     sys.modules[f"release_tool.{_m}"] = _mod
 
-__all__ = ["core", "stages"]
-__all__ += [
+# Упрощаем «star import» для стадий
+_stages = _importlib.import_module("release_tool.stages")
+
+__all__ = [
+    "core",
+    "stages",
     "config",
     "git",
     "git_utils",
