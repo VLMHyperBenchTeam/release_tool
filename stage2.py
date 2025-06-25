@@ -69,21 +69,28 @@ def run(argv: list[str] | None = None) -> None:
         if not pkg.is_dir():
             continue
         print(f"[stage2] Проверяем пакет: {pkg.name}")
+        # Определяем, участвует ли пакет в текущем релизном цикле
+        changes_root = root / cfg.get("changes_output_dir", "release_tool/changes")
+        in_current_release = (changes_root / pkg.name).exists()
+
         # Commit (если запрошен)
         if args.commit:
             process_package(pkg, cfg, push=False, dry_run=args.dry_run or cfg.get("dry_run", False))
 
-        # Push (если запрошен)
+        # Push (если запрошен) — только для пакетов, участвующих в релизе
         if args.push:
-            remote_name = cfg.get("git_remote", "origin")
-            try:
-                if has_commits_to_push(pkg, remote=remote_name):
-                    _push_repo(pkg, remote_name)
-                    print(f"[stage2]   ✅ {pkg.name}: изменения отправлены")
-                else:
-                    print(f"[stage2]   📭 {pkg.name}: изменений нет")
-            except Exception as exc:  # noqa: BLE001
-                print(f"[stage2]   ❌ {pkg.name}: push завершился ошибкой: {exc}")
+            if not in_current_release:
+                print(f"[stage2]   ⏩ {pkg.name}: не участвует в текущем релизе — push пропущен")
+            else:
+                remote_name = cfg.get("git_remote", "origin")
+                try:
+                    if has_commits_to_push(pkg, remote=remote_name):
+                        _push_repo(pkg, remote_name)
+                        print(f"[stage2]   ✅ {pkg.name}: изменения отправлены")
+                    else:
+                        print(f"[stage2]   📭 {pkg.name}: изменений нет")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[stage2]   ❌ {pkg.name}: push завершился ошибкой: {exc}")
 
         # Проверяем, был ли пакет обработан
         changes_dir = root / cfg.get("changes_output_dir", "release_tool/changes") / pkg.name

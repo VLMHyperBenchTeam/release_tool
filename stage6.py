@@ -55,7 +55,7 @@ def _set_version(pyproject: pathlib.Path, new_version: str) -> None:
     pyproject.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
 
-def _process_package(pkg_path: pathlib.Path, branch: str, push: bool, dry_run: bool) -> None:
+def _process_package(pkg_path: pathlib.Path, branch: str, push: bool, remote: str, dry_run: bool) -> None:
     pyproject = pkg_path / "pyproject.toml"
     if not pyproject.exists():
         return
@@ -81,11 +81,11 @@ def _process_package(pkg_path: pathlib.Path, branch: str, push: bool, dry_run: b
     _run_git(pkg_path, ["commit", "-m", f"chore: start {next_dev} development"], capture=False)
 
     if push:
-        _push_repo(pkg_path, "origin")
+        _push_repo(pkg_path, remote)
         print(f"[stage6]   🚀 ветка {branch} отправлена")
 
         # Вывод ссылки для открытия Pull Request
-        proc_url = _run_git(pkg_path, ["config", "--get", "remote.origin.url"])
+        proc_url = _run_git(pkg_path, ["config", "--get", f"remote.{remote}.url"])
         remote_url = proc_url.stdout.strip()
 
         def _to_https(url: str) -> str | None:
@@ -110,6 +110,7 @@ def run(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Stage 6: start next dev cycle")
     parser.add_argument("--branch", default="dev_branch", help="Имя ветки для dev-цикла")
     parser.add_argument("--push", action="store_true")
+    parser.add_argument("--remote", default=cfg.get("git_remote", "origin"), help="Имя удалённого репозитория для push")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -132,7 +133,13 @@ def run(argv: list[str] | None = None) -> None:
             continue
 
         print(f"[stage6] Обрабатываем пакет: {pkg.name}")
-        _process_package(pkg, args.branch, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
+        _process_package(
+            pkg,
+            args.branch,
+            push=args.push,
+            remote=args.remote,
+            dry_run=args.dry_run or cfg.get("dry_run", False),
+        )
         processed += 1
 
     print(f"[stage6] ✅ Завершено. Обработано пакетов: {processed}")
