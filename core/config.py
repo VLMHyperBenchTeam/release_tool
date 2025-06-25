@@ -13,7 +13,7 @@ from typing import Any, Iterator
 import tomlkit  # type: ignore  # third-party
 
 
-class Config(dict):
+class Config(dict[str, Any]):
     """Словарь-обёртка с дефолтами и парсингом TOML."""
 
     _DEFAULTS: dict[str, Any] = {

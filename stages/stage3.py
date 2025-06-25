@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
+from typing import Any
 
 from ..config import load_config
 from ..git_utils import (
@@ -37,7 +38,7 @@ def _build_changes_text(
 
 def process_package(
     pkg_path: pathlib.Path,
-    cfg: dict,
+    cfg: dict[str, Any],
     dry_run: bool = False,
     include_diff: bool = False,
     from_tag: str | None = None,
@@ -94,7 +95,7 @@ def process_package(
 
 
 def run(argv: list[str] | None = None) -> None:
-    cfg = load_config()
+    cfg: dict[str, Any] = load_config()
     parser = argparse.ArgumentParser(description="Stage 3: git log since last tag")
     parser.add_argument("--tag", type=str, help="собрать изменения с указанного тега (по умолчанию — последний тег)")
     parser.add_argument("--dry-run", action="store_true")

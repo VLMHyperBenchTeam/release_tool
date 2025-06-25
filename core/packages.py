@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Any
 
 __all__ = ["Package", "iter_release_packages"]
 
@@ -20,7 +20,7 @@ class Package:
         return f"<Package {self.name} at {self.path}>"
 
 
-def iter_release_packages(cfg: dict, *, include_all: bool = True) -> Iterator[Package]:
+def iter_release_packages(cfg: dict[str, Any], *, include_all: bool = True) -> Iterator[Package]:
     root = Path.cwd()
     packages_dir = root / cfg.get("packages_dir", "packages")
     if not packages_dir.is_dir():

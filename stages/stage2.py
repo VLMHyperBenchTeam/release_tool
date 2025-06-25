@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
+from typing import Any
 
 from ..config import load_config
 from ..git_utils import _push_repo, commit_all, _get_current_branch
@@ -14,7 +15,7 @@ from ..status_analyzer import analyze_repo_status, RepoStatus
 __all__ = ["run"]
 
 
-def process_package(pkg_path: pathlib.Path, cfg: dict, push: bool, dry_run: bool = False) -> RepoStatus | None:
+def process_package(pkg_path: pathlib.Path, cfg: dict[str, Any], push: bool, dry_run: bool = False) -> RepoStatus | None:
     """Создаёт commit и/или push для *pkg_path* и возвращает итоговый RepoStatus."""
 
     root = pathlib.Path.cwd()
