@@ -11,12 +11,12 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
-from packaging.version import Version, InvalidVersion  # type: ignore
 
 import tomlkit  # type: ignore  # third-party
+from packaging.version import InvalidVersion, Version  # type: ignore
 
 from .config import load_config
-from .git_utils import _run_git, GitError, _push_repo
+from .git_utils import _push_repo, _run_git
 
 
 def _next_dev_version(release_version: str) -> str:
@@ -83,6 +83,24 @@ def _process_package(pkg_path: pathlib.Path, branch: str, push: bool, dry_run: b
     if push:
         _push_repo(pkg_path, "origin")
         print(f"[stage6]   🚀 ветка {branch} отправлена")
+
+        # Вывод ссылки для открытия Pull Request
+        proc_url = _run_git(pkg_path, ["config", "--get", "remote.origin.url"])
+        remote_url = proc_url.stdout.strip()
+
+        def _to_https(url: str) -> str | None:
+            if url.startswith("git@"):
+                _, rest = url.split("@", 1)
+                host, path = rest.split(":", 1)
+                path = path[:-4] if path.endswith(".git") else path
+                return f"https://{host}/{path}"
+            if url.startswith("https://") or url.startswith("http://"):
+                return url.removesuffix(".git")
+            return None
+
+        base_url = _to_https(remote_url)
+        if base_url:
+            print(f"[stage6]   🔗 Создать PR: {base_url}/compare/{branch}?expand=1")
 
     print(f"[stage6]   ✅ {pkg_path.name}: начат dev-цикл {next_dev}")
 

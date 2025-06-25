@@ -17,7 +17,7 @@ import pathlib
 import sys
 
 from .config import load_config
-from .git_utils import commit_all, _push_repo, has_commits_to_push
+from .git_utils import _push_repo, commit_all, has_commits_to_push
 
 
 def process_package(pkg_path: pathlib.Path, cfg: dict, push: bool, dry_run: bool = False) -> None:

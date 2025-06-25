@@ -16,11 +16,10 @@ import sys
 
 from .config import load_config
 from .git_utils import (
-    get_last_tag,
-    get_log_since_tag,
-    has_changes_since_last_tag,
-    get_diff_since_tag,
     _run_git,
+    get_diff_since_tag,
+    get_last_tag,
+    has_changes_since_last_tag,
 )
 
 

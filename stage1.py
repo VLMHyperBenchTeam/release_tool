@@ -15,9 +15,9 @@ import sys
 
 from .config import load_config
 from .git_utils import (
-    get_uncommitted_changes,
     get_diff_stat,
     get_full_diff,
+    get_uncommitted_changes,
     has_uncommitted_changes,
 )
 

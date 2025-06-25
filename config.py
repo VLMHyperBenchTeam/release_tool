@@ -45,8 +45,8 @@ def load_config(config_path: pathlib.Path | str | None = None) -> dict:
         path = find_config_file()
     
     if not path.exists():
-        print(f"[release_tool] Конфигурационный файл не найден.", file=sys.stderr)
-        print(f"[release_tool] Искал в:", file=sys.stderr)
+        print("[release_tool] Конфигурационный файл не найден.", file=sys.stderr)
+        print("[release_tool] Искал в:", file=sys.stderr)
         print(f"[release_tool]   1. {pathlib.Path.cwd() / 'release_tool.toml'} (корень проекта)", file=sys.stderr)
         print(f"[release_tool]   2. {pathlib.Path.cwd() / 'release_tool' / 'release_tool.toml'} (submodule)", file=sys.stderr)
         print(f"[release_tool]   3. {pathlib.Path(__file__).resolve().parent / 'release_tool.toml'} (в модуле)", file=sys.stderr)

@@ -1,8 +1,8 @@
 """Утилиты для работы с `git` через subprocess."""
 from __future__ import annotations
 
-import subprocess
 import pathlib
+import subprocess
 from typing import List, Optional
 
 

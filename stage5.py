@@ -16,8 +16,8 @@ from typing import Optional
 import tomlkit  # type: ignore  # third-party
 
 from .config import load_config
-from .git_utils import _run_git, GitError, commit_all, _push_repo
-
+from .git_utils import GitError, _run_git, commit_all
+from .utils import substitute_placeholders
 
 DEFAULT_TAG_TMPL = """## Релиз {VERSION}
 
@@ -96,6 +96,7 @@ def run(argv: list[str] | None = None) -> None:
     parser.add_argument("--base-branch", default="main", help="Целевая ветка, в которой находится релизный коммит")
     parser.add_argument("--delete-branch", help="Локальная ветка, которую удалить после успешного merge")
     parser.add_argument("--sync", action="store_true", help="Перед тегированием выполнить fetch/checkout/pull base-branch и (опц.) удалить dev-ветку")
+    parser.add_argument("--remote", default=cfg.get("git_remote", "origin"), help="Имя удалённого репозитория")
     args = parser.parse_args(argv)
 
     root = pathlib.Path.cwd()
@@ -128,7 +129,7 @@ def run(argv: list[str] | None = None) -> None:
         tag_name = f"{cfg.get('tag_prefix', '')}{version}"
         print(f"[stage5] Обрабатываем пакет: {pkg.name} → {tag_name}")
         if _tag_exists(pkg, tag_name):
-            print(f"[stage5]   🟡 тег уже существует, пропускаем")
+            print("[stage5]   🟡 тег уже существует, пропускаем")
             continue
         # Используем содержимое tag_message.txt, если оно есть; иначе — сообщение последнего коммита
         tag_msg_file = pkg_changes_dir / cfg["tag_message_filename"]
@@ -144,10 +145,8 @@ def run(argv: list[str] | None = None) -> None:
             proc = _run_git(pkg, ["log", "-1", "--pretty=%B"])
             raw_msg = proc.stdout.strip() or f"Release {tag_name}"
 
-        # Подстановка плейсхолдеров
-        commit_msg = (
-            raw_msg.replace("{VERSION}", version).replace("{PREV_VERSION}", version)
-        )
+        # Подстановка плейсхолдеров через общий helper
+        commit_msg = substitute_placeholders(raw_msg, version=version, prev_version=version)
 
         # --- prod pyproject update (root repo) -----------------------------
         # Определяем project name через tomlkit
@@ -165,7 +164,7 @@ def run(argv: list[str] | None = None) -> None:
 
         # optional sync checkout
         if args.sync:
-            remote_name = cfg.get("git_remote", "origin")
+            remote_name = args.remote
             _run_git(pkg, ["fetch", remote_name], capture=False)
             _run_git(pkg, ["checkout", args.base_branch], capture=False)
             _run_git(pkg, ["pull", remote_name, args.base_branch], capture=False)
@@ -179,20 +178,41 @@ def run(argv: list[str] | None = None) -> None:
             push=args.push,
             dry_run=args.dry_run or cfg.get("dry_run", False),
         )
-        print(f"[stage5]   ✅ тег создан")
+        print("[stage5]   ✅ тег создан")
+        # Вывод ссылки на тег для удобного копирования
+        if args.push and not (args.dry_run or cfg.get("dry_run", False)):
+            # Получаем URL удалённого репозитория
+            proc_url = _run_git(pkg, ["config", "--get", f"remote.{args.remote}.url"])
+            remote_url = proc_url.stdout.strip()
+
+            def _to_https(url: str) -> str | None:
+                """Конвертирует ssh/https git-URL в https-URL без .git"""
+                if url.startswith("git@"):
+                    # git@github.com:org/repo.git → https://github.com/org/repo
+                    _, rest = url.split("@", 1)
+                    host, path = rest.split(":", 1)
+                    path = path[:-4] if path.endswith(".git") else path
+                    return f"https://{host}/{path}"
+                if url.startswith("https://") or url.startswith("http://"):
+                    return url.removesuffix(".git")
+                return None
+
+            base_url = _to_https(remote_url)
+            if base_url:
+                print(f"[stage5]   🔗 {base_url}/releases/tag/{tag_name}")
         processed += 1
 
     # Commit prod pyproject once if changed
     if prod_changed_any:
         if args.dry_run or cfg.get("dry_run", False):
             print(f"[stage5]   [dry-run] git add {prod_py_path}")
-            print(f"[stage5]   [dry-run] git commit -m \"chore(prod): update dependencies\"")
+            print("[stage5]   [dry-run] git commit -m \"chore(prod): update dependencies\"")
             if args.push:
-                print(f"[stage5]   [dry-run] git push {cfg.get('git_remote', 'origin')}")
+                print(f"[stage5]   [dry-run] git push {args.remote}")
         else:
             try:
-                commit_all(root, "chore(prod): update dependencies", remote=cfg.get("git_remote", "origin"), push=args.push)
-                print(f"[stage5]   ✅ prod/pyproject.toml коммитнут")
+                commit_all(root, "chore(prod): update dependencies", remote=args.remote, push=args.push)
+                print("[stage5]   ✅ prod/pyproject.toml коммитнут")
             except Exception as exc:
                 print(f"[stage5]   ❌ commit prod error: {exc}")
 

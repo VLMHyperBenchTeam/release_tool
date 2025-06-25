@@ -19,7 +19,7 @@ import pathlib
 import sys
 
 from .config import load_config
-from .git_utils import _run_git, _push_repo
+from .git_utils import _push_repo, _run_git, has_commits_to_push
 
 
 def _process_package(pkg: pathlib.Path, branch: str, base: str, remote: str, push: bool, dry_run: bool) -> None:
@@ -38,8 +38,11 @@ def _process_package(pkg: pathlib.Path, branch: str, base: str, remote: str, pus
         _run_git(pkg, ["checkout", "-B", branch, base], capture=False)
 
     if push:
-        _push_repo(pkg, remote)
-        print(f"[stage0]   🚀 ветка {branch} отправлена")
+        if has_commits_to_push(pkg, remote):
+            _push_repo(pkg, remote)
+            print(f"[stage0]   🚀 ветка {branch} отправлена")
+        else:
+            print("[stage0]   📭 изменений нет — push пропущен")
 
     print(f"[stage0]   ✅ {pkg.name}: подготовлена ветка {branch} (от {base})")
 

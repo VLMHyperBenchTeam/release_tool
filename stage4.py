@@ -20,19 +20,20 @@ from __future__ import annotations
 
 import argparse
 import pathlib
-import sys
-from packaging.version import Version, InvalidVersion  # type: ignore
-from typing import Optional
 import re
+import sys
+
 import tomlkit  # type: ignore  # third-party
+from packaging.version import InvalidVersion, Version  # type: ignore
 
 from .config import load_config
 from .git_utils import (
-    _run_git,
     GitError,
-    commit_all,  # для push если надо
     _push_repo,
+    _run_git,
+    commit_all,  # для push если надо
 )
+from .utils import substitute_placeholders
 
 _SEMVER_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 _DEV_RE = re.compile(r"^(?P<prefix>.*?)(?P<dev>\.dev(?P<num>\d+))?$")
@@ -194,9 +195,7 @@ def _process_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, push: bo
     new_version = bump_version(current_version, bump_part)
 
     # Подставляем плейсхолдеры в сообщении
-    tag_message = (
-        raw_tag_msg.replace("{VERSION}", new_version).replace("{PREV_VERSION}", current_version)
-    )
+    tag_message = substitute_placeholders(raw_tag_msg, version=new_version, prev_version=current_version)
 
     if dry_run:
         print(f"[stage4]   [dry-run] {pkg_path.name}: {current_version} -> {new_version}")
@@ -219,7 +218,7 @@ def _process_package(pkg_path: pathlib.Path, cfg: dict, bump_part: str, push: bo
         if push:
             try:
                 _push_repo(pkg_path, cfg.get("git_remote", "origin"))
-                print(f"[stage4]   🚀 изменения отправлены")
+                print("[stage4]   🚀 изменения отправлены")
             except Exception as exc:  # noqa: BLE001
                 print(f"[stage4]   ❌ push error: {exc}")
 
@@ -261,13 +260,13 @@ def run(argv: list[str] | None = None) -> None:
         staging_py_path = root / cfg.get("staging_pyproject_path", "staging/pyproject.toml")
         if args.dry_run or cfg.get("dry_run", False):
             print(f"[stage4]   [dry-run] git add {staging_py_path}")
-            print(f"[stage4]   [dry-run] git commit -m \"chore(staging): update dependencies\"")
+            print("[stage4]   [dry-run] git commit -m \"chore(staging): update dependencies\"")
             if args.push:
                 print(f"[stage4]   [dry-run] git push {cfg.get('git_remote', 'origin')}")
         else:
             try:
                 commit_all(root, "chore(staging): update dependencies", remote=cfg.get("git_remote", "origin"), push=args.push)
-                print(f"[stage4]   ✅ staging/pyproject.toml коммитнут")
+                print("[stage4]   ✅ staging/pyproject.toml коммитнут")
             except Exception as exc:
                 print(f"[stage4]   ❌ commit staging error: {exc}")
 
