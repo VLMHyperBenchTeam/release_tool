@@ -17,24 +17,50 @@ import pathlib
 import sys
 
 from .config import load_config
-from .git_utils import _push_repo, commit_all, has_commits_to_push
+from .git_utils import _push_repo, commit_all, _get_current_branch
+from .status_analyzer import analyze_repo_status, RepoStatus
 
 
-def process_package(pkg_path: pathlib.Path, cfg: dict, push: bool, dry_run: bool = False) -> None:
+def process_package(pkg_path: pathlib.Path, cfg: dict, push: bool, dry_run: bool = False) -> RepoStatus | None:
+    """Создаёт commit и/или push для *pkg_path*, возвращает `RepoStatus` после операций.
+
+    Если commit-сообщение не найдено — возвращает *None*.
+    """
+
     root = pathlib.Path.cwd()
     changes_dir = root / cfg.get("changes_output_dir", "release_tool/changes") / pkg_path.name
     msg_file = changes_dir / cfg["commit_message_filename"]
     if not msg_file.exists():
         print(f"[stage2]   {pkg_path.name}: файл commit-сообщения не найден")
-        return
+        return None
 
     message = msg_file.read_text(encoding="utf-8").strip()
     if not message:
         print(f"[stage2]   {pkg_path.name}: пустое commit-сообщение")
-        return
+        return None
 
+    # Выполняем commit/push
     commit_all(pkg_path, message, remote=cfg.get("git_remote", "origin"), push=push, dry_run=dry_run)
-    print(f"[stage2]   ✅ {pkg_path.name}: commit создан{' и отправлен' if push else ''}")
+
+    # Анализируем статус ветки после операций
+    branch = _get_current_branch(pkg_path)
+    repo_status = analyze_repo_status(pkg_path, branch, cfg.get("git_remote", "origin"))
+
+    status_parts: list[str] = []
+    if repo_status.ahead:
+        status_parts.append(f"ahead:{repo_status.ahead}")
+    if repo_status.behind:
+        status_parts.append(f"behind:{repo_status.behind}")
+    if repo_status.uncommitted:
+        status_parts.append("uncommitted")
+
+    status_str = ", ".join(status_parts) if status_parts else "ok"
+
+    print(
+        f"[stage2]   ✅ {pkg_path.name}: commit создан{' и отправлен' if push else ''}; {status_str}"
+    )
+
+    return repo_status
 
 
 def run(argv: list[str] | None = None) -> None:
@@ -84,11 +110,14 @@ def run(argv: list[str] | None = None) -> None:
             else:
                 remote_name = cfg.get("git_remote", "origin")
                 try:
-                    if has_commits_to_push(pkg, remote=remote_name):
+                    repo_status = analyze_repo_status(pkg, _get_current_branch(pkg), remote_name)
+                    if repo_status.ahead:
                         _push_repo(pkg, remote_name)
-                        print(f"[stage2]   ✅ {pkg.name}: изменения отправлены")
+                        print(
+                            f"[stage2]   ✅ {pkg.name}: изменения отправлены (остался behind:{repo_status.behind})"
+                        )
                     else:
-                        print(f"[stage2]   📭 {pkg.name}: изменений нет")
+                        print(f"[stage2]   📭 {pkg.name}: изменений нет (ahead:0)")
                 except Exception as exc:  # noqa: BLE001
                     print(f"[stage2]   ❌ {pkg.name}: push завершился ошибкой: {exc}")
 
