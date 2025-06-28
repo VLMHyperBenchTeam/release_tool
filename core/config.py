@@ -21,7 +21,7 @@ class Config(dict[str, Any]):
         "changes_output_dir": "release_tool/changes",
         "changes_uncommitted_filename": "changes_uncommitted.txt",
         "changes_since_tag_filename": "changes_since_tag.txt",
-        "tag_message_filename": "tag_message.txt",
+        "tag_message_filename": "tag_message.md",
         "staging_pyproject_path": "staging/pyproject.toml",
         "prod_pyproject_path": "prod/pyproject.toml",
         # служебное

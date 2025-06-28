@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
 from typing import Any
@@ -97,9 +98,24 @@ def process_package(
 def run(argv: list[str] | None = None) -> None:
     cfg: dict[str, Any] = load_config()
     parser = argparse.ArgumentParser(description="Stage 3: git log since last tag")
-    parser.add_argument("--tag", type=str, help="собрать изменения с указанного тега (по умолчанию — последний тег)")
+    parser.add_argument("--tags-file", help="JSON-файл {package: tag} для индивидуальных стартовых точек")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+
+    # Загружаем карту тегов, если указана
+    tags_map: dict[str, str] = {}
+    if args.tags_file:
+        try:
+            tags_path = pathlib.Path(args.tags_file)
+            with tags_path.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict):
+                raise ValueError("JSON должен быть объектом {package: tag}")
+            # приведение ключей/значений к str
+            tags_map = {str(k): str(v) for k, v in data.items()}
+        except Exception as exc:  # noqa: BLE001
+            print(f"[stage3] ❌ не удалось загрузить --tags-file: {exc}", file=sys.stderr)
+            sys.exit(1)
 
     print("[stage3] Поиск коммитов после последнего тега...")
 
@@ -116,12 +132,15 @@ def run(argv: list[str] | None = None) -> None:
         if not pkg.is_dir():
             continue
         print(f"[stage3] Проверяем пакет: {pkg.name}")
+        # определяем тег для пакета: берём из карты, иначе None (последний тег)
+        tag_for_pkg = tags_map.get(pkg.name)
+
         process_package(
             pkg,
             cfg,
             dry_run=args.dry_run or cfg.get("dry_run", False),
             include_diff=True,
-            from_tag=args.tag,
+            from_tag=tag_for_pkg,
         )
         # Проверяем был ли создан файл
         changes_file = (

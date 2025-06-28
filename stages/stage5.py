@@ -25,7 +25,9 @@ _Изменения по сравнению с {PREV_VERSION}_
 __all__ = ["run"]
 
 
+# noinspection PyMissingOrEmptyDocstring
 def _is_default_tag_message(text: str) -> bool:
+    """Возвращает True, если файл tag_message.md не изменён пользователем."""
     return text.strip() == DEFAULT_TAG_TMPL.strip()
 
 
@@ -129,7 +131,7 @@ def run(argv: list[str] | None = None) -> None:
         if _tag_exists(pkg, tag_name):
             print("[stage5]   🟡 тег уже существует, пропускаем")
             continue
-        # Используем содержимое tag_message.txt, если оно есть; иначе — сообщение последнего коммита
+        # Используем содержимое tag_message.md, если он есть; иначе — сообщение последнего коммита
         tag_msg_file = pkg_changes_dir / cfg["tag_message_filename"]
         raw_msg: str = ""
         if tag_msg_file.exists():
