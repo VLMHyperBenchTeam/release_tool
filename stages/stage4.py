@@ -213,11 +213,14 @@ def _process_package(pkg_path: pathlib.Path, cfg: dict[str, Any], bump_part: str
         print(f"[stage4]   ✅ commit создан: {new_version}")
 
         if push:
-            try:
-                _push_repo(pkg_path, cfg.get("git_remote", "origin"))
-                print("[stage4]   🚀 изменения отправлены")
-            except Exception as exc:  # noqa: BLE001
-                print(f"[stage4]   ❌ push error: {exc}")
+            if dry_run:
+                print(f"[stage4]   [dry-run] git -C {pkg_path} push {cfg.get('git_remote', 'origin')}")
+            else:
+                try:
+                    _push_repo(pkg_path, cfg.get("git_remote", "origin"))
+                    print(f"[stage4]   🚀 {pkg_path.name}: изменения отправлены")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[stage4]   ❌ push error: {exc}")
 
     # --- staging pyproject update ------------------------
     staging_py_path = root / cfg.get("staging_pyproject_path", "staging/pyproject.toml")
@@ -230,8 +233,8 @@ def _process_package(pkg_path: pathlib.Path, cfg: dict[str, Any], bump_part: str
 def run(argv: list[str] | None = None) -> None:
     cfg = load_config()
     parser = argparse.ArgumentParser(description="Stage 4 (prepare release): commit without tag and update staging pyproject")
-    parser.add_argument("--bump", required=True, choices=["patch", "minor", "major", "dev"], help="Какая часть версии")
-    parser.add_argument("--push", action="store_true", help="Выполнить git push после коммита")
+    parser.add_argument("--bump", choices=["patch", "minor", "major", "dev"], help="Какая часть версии")
+    parser.add_argument("--push", action="store_true", help="Выполнить git push (с опциональным bump-коммитом)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -241,18 +244,37 @@ def run(argv: list[str] | None = None) -> None:
         print(f"[stage4] каталог пакетов не найден: {packages_dir}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[stage4] Выполняем prepare-release bump ({args.bump})…")
+    if args.bump:
+        print(f"[stage4] Выполняем prepare-release bump ({args.bump})…")
+    elif args.push:
+        print("[stage4] Выполняем push изменений без bump…")
+    else:
+        print("[stage4] Ничего делать не нужно: не указан --bump и --push. Завершено.")
+        return
+
     processed = 0
     staging_changed_any = False
     for pkg in sorted(packages_dir.iterdir()):
         if not pkg.is_dir():
             continue
-        print(f"[stage4] Обрабатываем пакет: {pkg.name}")
-        changed = _process_package(pkg, cfg, args.bump, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
-        staging_changed_any = staging_changed_any or changed
-        processed += 1
+        if args.bump:
+            print(f"[stage4] Обрабатываем пакет: {pkg.name}")
+            changed = _process_package(pkg, cfg, args.bump, push=args.push, dry_run=args.dry_run or cfg.get("dry_run", False))
+            staging_changed_any = staging_changed_any or changed
+            processed += 1
+        elif args.push:
+            # режим push-only
+            if args.dry_run or cfg.get("dry_run", False):
+                print(f"[stage4]   [dry-run] git -C {pkg} push {cfg.get('git_remote', 'origin')}")
+            else:
+                try:
+                    _push_repo(pkg, cfg.get("git_remote", "origin"))
+                    print(f"[stage4]   🚀 {pkg.name}: изменения отправлены")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[stage4]   ❌ push error: {exc}")
+            processed += 1
 
-    # commit root staging pyproject if changed
+    # commit root staging pyproject if changed (только при bump)
     if staging_changed_any:
         staging_py_path = root / cfg.get("staging_pyproject_path", "staging/pyproject.toml")
         if args.dry_run or cfg.get("dry_run", False):

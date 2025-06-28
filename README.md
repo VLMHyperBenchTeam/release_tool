@@ -47,7 +47,7 @@ uv run release-tool-stage2 --commit --push   # коммитим (и пушим) 
 uv run release-tool-stage3            # создаёт *changes_since_tag.txt*
 
 # 4️⃣ Отдаём в LLM → заполняем *tag_message.md*, затем *prepare*-коммит
-uv run release-tool-stage4 --bump patch --push   # bump + commit в dev_branch
+uv run release-tool-stage4 --bump patch --push   # bump + commit + push (или сначала --bump patch, позже — --push)
 
 # 5️⃣ Открываем Pull-Request dev_branch → main, ревью и merge (выходит за рамки скриптов)
 
@@ -345,9 +345,9 @@ uv run python -m release_tool.stage3 --tag v0.5.0 --dry-run
 ```
 
 ### 5.4 Stage 4 — «Prepare» (release-commit без тега)
-`uv run python -m release_tool.stage4 --bump patch|minor|major|dev [--push] [--dry-run]`
+`uv run python -m release_tool.stage4 [--bump patch|minor|major|dev] [--push] [--dry-run]`
 
-1. Увеличивает версию (`--bump …`) и обновляет `pyproject.toml` в пакете.
+1. Увеличивает версию (`--bump …`, если указан) и обновляет `pyproject.toml` в пакете.
 2. Читает `<tag_message_filename>` и создаёт **коммит** с этим сообщением.
 3. Обновляет ссылку на пакет в `staging/pyproject.toml`, фиксируя dev-версию (см. раздел «Три workspace» ниже).
 4. Не ставит тег, не запускает dev-цикл.
@@ -402,7 +402,11 @@ uv run python -m release_tool.stage2 --commit  # только коммит
 
 ### Только push (коммиты уже есть)
 ```bash
-uv run python -m release_tool.stage2 --push  # только отправка
+# Для отправки bump-коммитов после проверки используйте Stage 4
+uv run python -m release_tool.stage4 --push   # только push
+
+# (или по-старому для обычных коммитов)
+uv run python -m release_tool.stage2 --push   # push commit-changes
 ```
 
 ### Очистка рабочих файлов
