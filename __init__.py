@@ -20,6 +20,19 @@ for _m in (
 # Упрощаем «star import» для стадий
 _stages = _importlib.import_module("release_tool.stages")
 
+for _stage in (
+    "stage0",
+    "stage1",
+    "stage2",
+    "stage3",
+    "stage4",
+    "stage5",
+    "stage6",
+    "clear",
+):
+    _stage_mod = _importlib.import_module(f"release_tool.stages.{_stage}")
+    sys.modules[f"release_tool.{_stage}"] = _stage_mod
+
 __all__ = [
     "core",
     "stages",
@@ -30,4 +43,12 @@ __all__ = [
     "packages",
     "status_analyzer",
     "utils",
+    "stage0",
+    "stage1",
+    "stage2",
+    "stage3",
+    "stage4",
+    "stage5",
+    "stage6",
+    "clear",
 ] 
