@@ -36,7 +36,7 @@ __all__ = ["run"]
 
 
 def _is_default_tag_message(text: str) -> bool:
-    """Возвращает True, если файл tag_message.txt не изменён пользователем."""
+    """Возвращает True, если файл tag_message.md не изменён пользователем."""
     return text.strip() == DEFAULT_TAG_TMPL.strip()
 
 

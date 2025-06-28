@@ -46,7 +46,7 @@ uv run release-tool-stage2 --commit --push   # коммитим (и пушим) 
 # 3️⃣ Собираем diff после последнего тега
 uv run release-tool-stage3            # создаёт *changes_since_tag.txt*
 
-# 4️⃣ Отдаём в LLM → заполняем *tag_message.txt*, затем *prepare*-коммит
+# 4️⃣ Отдаём в LLM → заполняем *tag_message.md*, затем *prepare*-коммит
 uv run release-tool-stage4 --bump patch --push   # bump + commit в dev_branch
 
 # 5️⃣ Открываем Pull-Request dev_branch → main, ревью и merge (выходит за рамки скриптов)
@@ -169,7 +169,7 @@ prod_pyproject_path = "prod/pyproject.toml"
 
 # Файлы с сообщениями LLM
 commit_message_filename = "commit_message.txt"
-tag_message_filename    = "tag_message.txt"
+tag_message_filename    = "tag_message.md"
 
 # Префикс тега (итоговый тег = "<tag_prefix><version>")
 tag_prefix = "v"
@@ -516,7 +516,7 @@ uv run python -m release_tool.stage2 --commit --push
 
 # 2. Готовим релиз
 uv run python -m release_tool.stage3
-# Заполняем tag_message.txt в каждом пакете
+# Заполняем tag_message.md в каждом пакете
 uv run python -m release_tool.stage4 --bump patch --push
 ```
 
@@ -530,7 +530,7 @@ uv run python -m release_tool.stage2 --commit  # только коммит
 ### Только релиз (после коммитов)
 ```bash
 uv run python -m release_tool.stage3
-# Заполняем tag_message.txt
+# Заполняем tag_message.md
 uv run python -m release_tool.stage4 --bump minor --push  # bump + push
 ```
 
