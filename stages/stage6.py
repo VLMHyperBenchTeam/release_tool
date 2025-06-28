@@ -82,24 +82,6 @@ def _process_package(pkg_path: pathlib.Path, branch: str, push: bool, remote: st
         _push_repo(pkg_path, remote)
         print(f"[stage6]   🚀 ветка {branch} отправлена")
 
-        # Вывод ссылки для открытия Pull Request
-        proc_url = _run_git(pkg_path, ["config", "--get", f"remote.{remote}.url"])
-        remote_url = proc_url.stdout.strip()
-
-        def _to_https(url: str) -> str | None:
-            if url.startswith("git@"):  # ssh
-                _, rest = url.split("@", 1)
-                host, path = rest.split(":", 1)
-                path = path[:-4] if path.endswith(".git") else path
-                return f"https://{host}/{path}"
-            if url.startswith("https://") or url.startswith("http://"):
-                return url.removesuffix(".git")
-            return None
-
-        base_url = _to_https(remote_url)
-        if base_url:
-            print(f"[stage6]   🔗 Создать PR: {base_url}/compare/{branch}?expand=1")
-
     print(f"[stage6]   ✅ {pkg_path.name}: начат dev-цикл {next_dev}")
 
 

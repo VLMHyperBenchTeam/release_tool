@@ -219,6 +219,29 @@ def _process_package(pkg_path: pathlib.Path, cfg: dict[str, Any], bump_part: str
                 try:
                     _push_repo(pkg_path, cfg.get("git_remote", "origin"))
                     print(f"[stage4]   🚀 {pkg_path.name}: изменения отправлены")
+                    # После успешного push выводим ссылку на создание Pull Request
+                    remote_name = cfg.get("git_remote", "origin")
+                    proc_url = _run_git(pkg_path, ["config", "--get", f"remote.{remote_name}.url"])
+                    remote_url = proc_url.stdout.strip()
+
+                    def _to_https(url: str) -> str | None:
+                        """Конвертирует ssh/https git-URL в https-URL без .git."""
+                        if url.startswith("git@"):
+                            _, rest = url.split("@", 1)
+                            host, path = rest.split(":", 1)
+                            path = path[:-4] if path.endswith(".git") else path
+                            return f"https://{host}/{path}"
+                        if url.startswith("https://") or url.startswith("http://"):
+                            return url.removesuffix(".git")
+                        return None
+
+                    base_url = _to_https(remote_url)
+                    if base_url:
+                        # Определяем текущую ветку (обычно dev_branch)
+                        proc_branch = _run_git(pkg_path, ["rev-parse", "--abbrev-ref", "HEAD"])
+                        branch_curr = proc_branch.stdout.strip()
+                        if branch_curr:
+                            print(f"[stage4]   🔗 Создать PR: {base_url}/compare/{branch_curr}?expand=1")
                 except Exception as exc:  # noqa: BLE001
                     print(f"[stage4]   ❌ push error: {exc}")
 
