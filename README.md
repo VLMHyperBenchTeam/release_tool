@@ -320,12 +320,12 @@ uv run release-tool-stage0 \
 ```
 
 ### 5.3 Stage 3 — «Since Tag»
-`uv run python -m release_tool.stage3 [--dry-run] [--tag TAG_NAME]`
+`uv run python -m release_tool.stage3 [--dry-run] [--tags-file PATH]`
 
 Собирает **полный diff** изменений между тегом и HEAD → `<changes_output_dir>/<package>/<changes_since_tag_filename>`.
 
 **Параметры:**
-- `--tag TAG_NAME` — собрать изменения с указанного тега (по умолчанию — последний тег)
+- `--tags-file PATH` — JSON-файл `{ "package": "tag" }`; если пакет отсутствует в карте — берётся последний тег
 - `--dry-run` — показать, что будет сохранено, без создания файлов
 
 **Создаёт файлы:**
@@ -334,14 +334,14 @@ uv run release-tool-stage0 \
 
 **Примеры использования:**
 ```bash
-# От последнего тега
+# Использовать последний тег у каждого пакета
 uv run python -m release_tool.stage3
 
-# От конкретного тега
-uv run python -m release_tool.stage3 --tag v1.0.0
+# Карта специальных тегов
+uv run python -m release_tool.stage3 --tags-file release_tool/examples/tags_map.example.json
 
 # Проверка без создания файлов
-uv run python -m release_tool.stage3 --tag v0.5.0 --dry-run
+uv run python -m release_tool.stage3 --tags-file tags_map.json --dry-run
 ```
 
 ### 5.4 Stage 4 — «Prepare» (release-commit без тега)
