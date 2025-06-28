@@ -103,6 +103,15 @@ def _clean_workspace_sources(pyproject: pathlib.Path, dry_run: bool = False) -> 
                     if len(tbl) == 0:
                         del sources_table[name]
                     changed = True
+
+        # Если после удаления всех записей таблица sources оказалась пустой – убираем всю секцию
+        if len(sources_table) == 0:
+            # Удаляем уровень sources
+            del doc["tool"]["uv"]["sources"]
+            # Если таблица uv теперь тоже пуста – удаляем и её
+            if len(doc["tool"]["uv"]) == 0:
+                del doc["tool"]["uv"]
+            changed = True
     except KeyError:
         # секция может отсутствовать – ничего не меняем
         pass
